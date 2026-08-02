@@ -13,6 +13,10 @@ export class GitHubApiError extends Error {
 export async function githubFetch<T>(token: string, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${GITHUB_API}${path}`, {
     ...init,
+    // GitHub's list endpoints can send caching headers; without this, a browser can serve a
+    // stale cached GET even right after a write we just made, making changes look like they
+    // "didn't take" until the cache entry expires.
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',

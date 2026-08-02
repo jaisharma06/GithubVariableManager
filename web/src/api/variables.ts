@@ -37,10 +37,21 @@ export async function createVariable(token: string, scope: ScopeRef, level: Item
   })
 }
 
-export async function updateVariable(token: string, scope: ScopeRef, level: ItemLevel, name: string, value: string) {
-  await githubFetch(token, `${variablesPath(scope, level)}/${encodeURIComponent(name)}`, {
+/**
+ * `currentName` selects the variable being updated (the URL); `newName` in the body is what
+ * GitHub actually renames it to if different — this endpoint doubles as a rename.
+ */
+export async function updateVariable(
+  token: string,
+  scope: ScopeRef,
+  level: ItemLevel,
+  currentName: string,
+  newName: string,
+  value: string,
+) {
+  await githubFetch(token, `${variablesPath(scope, level)}/${encodeURIComponent(currentName)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ name, value }),
+    body: JSON.stringify({ name: newName, value }),
   })
 }
 

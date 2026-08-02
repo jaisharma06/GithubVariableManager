@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { useMyOrgs, useMyRepos } from '../../api/hooks'
+import { getLastScope } from '../../lib/lastScope'
 
 export function ScopePicker() {
   const { viewer, disconnect } = useAuth()
@@ -10,6 +11,7 @@ export function ScopePicker() {
   const reposQuery = useMyRepos(token)
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
+  const lastScope = getLastScope()
 
   const orgs = useMemo(
     () => (orgsQuery.data ?? []).filter((o) => o.login.toLowerCase().includes(query.toLowerCase())),
@@ -40,6 +42,15 @@ export function ScopePicker() {
       </header>
 
       <main className="mx-auto max-w-2xl px-6 py-10">
+        {lastScope ? (
+          <button
+            onClick={() => navigate(lastScope.path)}
+            className="mb-4 inline-flex items-center gap-1.5 text-sm text-brand hover:underline"
+          >
+            &larr; Back to {lastScope.label}
+          </button>
+        ) : null}
+
         <input
           autoFocus
           value={query}

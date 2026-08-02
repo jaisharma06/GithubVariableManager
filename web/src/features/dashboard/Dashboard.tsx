@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import {
+  useCreateEnvironment,
+  useDeleteEnvironment,
   useDeleteSecret,
   useDeleteVariable,
   useEnvironments,
@@ -15,6 +17,7 @@ import { ScopeSidebar } from './ScopeSidebar'
 import { RateLimitIndicator } from '../../components/RateLimitIndicator'
 import { ItemEditorPanel } from '../item-editor/ItemEditorPanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { setLastScope } from '../../lib/lastScope'
 import type { ItemLevel, LedgerItem } from '../../api/types'
 
 type EditorState =
@@ -40,11 +43,21 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
   const showOrgLevel = !scope.repo || isOrgAccountQuery.data === true
   const deleteVariable = useDeleteVariable(token)
   const deleteSecret = useDeleteSecret(token)
+  const createEnvironment = useCreateEnvironment(token)
+  const deleteEnvironment = useDeleteEnvironment(token)
+
+  const breadcrumbLabel = breadcrumb.join('/')
+  useEffect(() => {
+    const path = scope.repo ? `/r/${scope.org}/${scope.repo}` : `/o/${scope.org}`
+    setLastScope({ path, label: breadcrumbLabel })
+  }, [scope.org, scope.repo, breadcrumbLabel])
 
   const [filters, setFilters] = useState<LedgerFilters>(defaultFilters)
   const [editorState, setEditorState] = useState<EditorState>(null)
   const [deleteTarget, setDeleteTarget] = useState<LedgerItem | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [envToDelete, setEnvToDelete] = useState<string | null>(null)
+  const [envDeleteError, setEnvDeleteError] = useState<string | null>(null)
 
   function handleSidebarNavigate(level: LedgerFilters['level'], env?: string) {
     if (level === 'all') {
@@ -52,6 +65,11 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
     } else {
       setFilters((f) => ({ ...f, level, env: env ?? 'all' }))
     }
+  }
+
+  async function handleCreateEnvironment(name: string) {
+    if (!scope.repo) return
+    await createEnvironment.mutateAsync({ org: scope.org, repo: scope.repo, name })
   }
 
   async function handleConfirmDelete() {
@@ -72,6 +90,22 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
     setDeleteError(null)
   }
 
+  async function handleConfirmDeleteEnv() {
+    if (!envToDelete || !scope.repo) return
+    setEnvDeleteError(null)
+    try {
+      await deleteEnvironment.mutateAsync({ org: scope.org, repo: scope.repo, name: envToDelete })
+      setEnvToDelete(null)
+    } catch (err) {
+      setEnvDeleteError(err instanceof Error ? err.message : 'GitHub rejected this request.')
+    }
+  }
+
+  function handleCancelDeleteEnv() {
+    setEnvToDelete(null)
+    setEnvDeleteError(null)
+  }
+
   return (
     <div className="flex min-h-screen bg-ink">
       <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-panel">
@@ -90,6 +124,8 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
             showOrgLevel={showOrgLevel}
             filters={filters}
             onNavigate={handleSidebarNavigate}
+            onCreateEnvironment={handleCreateEnvironment}
+            onDeleteEnvironment={setEnvToDelete}
           />
         </div>
 
@@ -115,6 +151,7 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
             isLoading={ledgerQuery.isLoading}
             error={ledgerQuery.error as Error | null}
             partialErrors={ledgerQuery.data?.partialErrors}
+            lockedSections={ledgerQuery.data?.lockedSections}
             environments={environmentsQuery.data ?? []}
             showRepoLevels={!!scope.repo}
             showOrgLevel={showOrgLevel}
@@ -149,6 +186,18 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
           confirming={deleteVariable.isPending || deleteSecret.isPending}
           onConfirm={handleConfirmDelete}
           onCancel={handleCancelDelete}
+        />
+      ) : null}
+
+      {envToDelete ? (
+        <ConfirmDialog
+          title={`Delete environment "${envToDelete}"?`}
+          description="This also removes every variable and secret set at this environment level. This can't be undone."
+          confirmLabel="Delete"
+          error={envDeleteError}
+          confirming={deleteEnvironment.isPending}
+          onConfirm={handleConfirmDeleteEnv}
+          onCancel={handleCancelDeleteEnv}
         />
       ) : null}
     </div>

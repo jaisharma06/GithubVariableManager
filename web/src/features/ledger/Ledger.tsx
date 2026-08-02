@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import type { GithubEnvironment, ItemLevel, LedgerItem } from '../../api/types'
-import type { LedgerPartialError } from '../../api/hooks'
-import { LedgerRow, ROW_GRID } from './LedgerRow'
+import type { GithubEnvironment, ItemKind, ItemLevel, LedgerItem } from '../../api/types'
+import type { LedgerLockedSection, LedgerPartialError } from '../../api/hooks'
+import { LedgerRow, LockedRow, ROW_GRID } from './LedgerRow'
 import { SectionHeader } from './SectionHeader'
 import { FilterBar, type LedgerFilters } from './FilterBar'
 import { Button } from '../../components/Button'
@@ -11,6 +11,7 @@ interface LedgerProps {
   isLoading: boolean
   error: Error | null
   partialErrors?: LedgerPartialError[]
+  lockedSections?: LedgerLockedSection[]
   environments: GithubEnvironment[]
   showRepoLevels: boolean
   showOrgLevel: boolean
@@ -29,34 +30,46 @@ interface Group {
   description: string
   env?: string
   items: LedgerItem[]
+  lockedKinds: ItemKind[]
 }
 
-function groupItems(items: LedgerItem[]): Group[] {
+function groupKeyFor(level: ItemLevel, env?: string): string {
+  return level === 'environment' ? `env:${env}` : level
+}
+
+function descriptionFor(level: ItemLevel, scopeLabel: string, env?: string): string {
+  if (level === 'organization') return `Shared with every repo in ${scopeLabel}.`
+  if (level === 'repository') return 'Only this repo can use these.'
+  return `Only deployments to "${env}" can use these.`
+}
+
+function groupItems(items: LedgerItem[], locked: LedgerLockedSection[]): Group[] {
   const groups = new Map<string, Group>()
 
-  for (const item of items) {
-    let key: string
-    let scopeLabel: string
-    let description: string
-
-    if (item.level === 'organization') {
-      key = 'org'
-      scopeLabel = item.scope.org
-      description = `Shared with every repo in ${item.scope.org}.`
-    } else if (item.level === 'repository') {
-      key = 'repo'
-      scopeLabel = item.scope.repo!
-      description = 'Only this repo can use these.'
-    } else {
-      key = `env:${item.scope.env}`
-      scopeLabel = item.scope.env!
-      description = `Only deployments to "${item.scope.env}" can use these.`
-    }
-
+  function ensureGroup(level: ItemLevel, scopeLabel: string, env?: string): Group {
+    const key = groupKeyFor(level, env)
     if (!groups.has(key)) {
-      groups.set(key, { key, level: item.level, scopeLabel, description, env: item.scope.env, items: [] })
+      groups.set(key, {
+        key,
+        level,
+        scopeLabel,
+        description: descriptionFor(level, scopeLabel, env),
+        env,
+        items: [],
+        lockedKinds: [],
+      })
     }
-    groups.get(key)!.items.push(item)
+    return groups.get(key)!
+  }
+
+  for (const item of items) {
+    const scopeLabel = item.level === 'organization' ? item.scope.org : item.level === 'repository' ? item.scope.repo! : item.scope.env!
+    ensureGroup(item.level, scopeLabel, item.scope.env).items.push(item)
+  }
+
+  for (const l of locked) {
+    const g = ensureGroup(l.level, l.scopeLabel, l.env)
+    if (!g.lockedKinds.includes(l.kind)) g.lockedKinds.push(l.kind)
   }
 
   const order: Record<ItemLevel, number> = { organization: 0, repository: 1, environment: 2 }
@@ -81,6 +94,7 @@ export function Ledger({
   isLoading,
   error,
   partialErrors = [],
+  lockedSections = [],
   environments,
   showRepoLevels,
   showOrgLevel,
@@ -103,7 +117,17 @@ export function Ledger({
     })
   }, [items, filters])
 
-  const groups = useMemo(() => groupItems(filtered), [filtered])
+  const filteredLocked = useMemo(() => {
+    if (filters.search) return []
+    return lockedSections.filter((l) => {
+      if (filters.level !== 'all' && l.level !== filters.level) return false
+      if (filters.kind !== 'all' && l.kind !== filters.kind) return false
+      if (filters.env !== 'all' && l.env !== filters.env) return false
+      return true
+    })
+  }, [lockedSections, filters])
+
+  const groups = useMemo(() => groupItems(filtered, filteredLocked), [filtered, filteredLocked])
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-sm shadow-black/[0.03]">
@@ -201,6 +225,9 @@ export function Ledger({
                         onEdit={() => onEdit(item)}
                         onDelete={() => onDelete(item)}
                       />
+                    ))}
+                    {group.lockedKinds.map((kind) => (
+                      <LockedRow key={kind} kind={kind} />
                     ))}
                   </div>
                 </div>

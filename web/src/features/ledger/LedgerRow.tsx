@@ -1,6 +1,22 @@
-import type { LedgerItem } from '../../api/types'
+import type { ItemKind, LedgerItem } from '../../api/types'
 
 export const ROW_GRID = 'grid grid-cols-[3px_3rem_1fr_1fr_5rem_4.5rem] items-center'
+
+/** Rendered instead of a real row when the current token has no rights to see this level/kind. */
+export function LockedRow({ kind }: { kind: ItemKind }) {
+  return (
+    <div className={`${ROW_GRID} border-b border-line last:border-b-0`}>
+      <span className="h-full min-h-[2.75rem] bg-line" aria-hidden="true" />
+      <span className="px-3 py-2.5 font-mono text-[10px] font-semibold tracking-wide text-text-dim">
+        {kind === 'secret' ? 'SEC' : 'VAR'}
+      </span>
+      <span className="col-span-3 flex items-center gap-1.5 px-1 py-2.5 text-sm text-text-dim">
+        <LockIcon />
+        No access to view {kind === 'secret' ? 'secrets' : 'variables'} at this level.
+      </span>
+    </div>
+  )
+}
 
 interface LedgerRowProps {
   item: LedgerItem
@@ -30,7 +46,14 @@ export function LedgerRow({ item, hideValues, onEdit, onDelete }: LedgerRowProps
 
       <span className="truncate px-3 py-2.5 font-mono text-sm">
         {isSecret ? (
-          <span className="text-secret/70">•••••••• write-only</span>
+          <span
+            title="Secret values are write-only — GitHub encrypts them on save and never returns them to any tool, including this one."
+            className="inline-flex items-center gap-1.5 text-secret"
+          >
+            <LockIcon />
+            <span className="tracking-widest">••••••••</span>
+            <span className="font-sans text-xs text-text-dim">write-only, can&rsquo;t be viewed</span>
+          </span>
         ) : masked ? (
           <span className="tracking-widest text-text-dim">••••••••••••</span>
         ) : (
@@ -43,11 +66,6 @@ export function LedgerRow({ item, hideValues, onEdit, onDelete }: LedgerRowProps
       </span>
 
       <span className="flex items-center gap-1 px-3 py-2.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        {isSecret ? (
-          <span title="Secrets are write-only — GitHub never returns their value." className="px-1 text-text-dim">
-            <LockIcon />
-          </span>
-        ) : null}
         <button type="button" onClick={onEdit} title="Edit" className="rounded p-1.5 text-text-dim hover:text-text">
           <EditIcon />
         </button>

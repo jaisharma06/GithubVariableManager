@@ -14,3 +14,16 @@ export async function listEnvironments(token: string, owner: string, repo: strin
     throw err
   }
 }
+
+/** Creates the environment if it doesn't exist yet (GitHub's PUT is create-or-update). */
+export async function createEnvironment(token: string, owner: string, repo: string, name: string): Promise<void> {
+  await githubFetch(token, `/repos/${owner}/${repo}/environments/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+  })
+}
+
+export async function deleteEnvironment(token: string, owner: string, repo: string, name: string): Promise<void> {
+  await githubFetch(token, `/repos/${owner}/${repo}/environments/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  })
+}

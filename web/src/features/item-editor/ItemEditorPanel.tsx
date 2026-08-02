@@ -4,10 +4,12 @@ import {
   useCreateVariable,
   useOrgRepos,
   usePutSecret,
+  useRenameSecret,
   useUpdateVariable,
   type DashboardScope,
 } from '../../api/hooks'
 import type { GithubEnvironment, ItemKind, ItemLevel, LedgerItem, ScopeRef, SecretVisibility } from '../../api/types'
+import type { PutSecretOptions } from '../../api/secrets'
 import { Button } from '../../components/Button'
 
 interface ItemEditorPanelProps {
@@ -51,7 +53,9 @@ export function ItemEditorPanel({
   const createVariable = useCreateVariable(token)
   const updateVariable = useUpdateVariable(token)
   const putSecret = usePutSecret(token)
-  const submitting = createVariable.isPending || updateVariable.isPending || putSecret.isPending
+  const renameSecret = useRenameSecret(token)
+  const submitting =
+    createVariable.isPending || updateVariable.isPending || putSecret.isPending || renameSecret.isPending
 
   const needsVisibilityPicker = kind === 'secret' && level === 'organization'
   const orgReposQuery = useOrgRepos(token, scope.org, needsVisibilityPicker && visibility === 'selected')
@@ -72,6 +76,8 @@ export function ItemEditorPanel({
     return { org: scope.org, repo: scope.repo, env: envName }
   }, [level, scope, envName])
 
+  const isRenaming = isEdit && name !== initial!.name
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
@@ -84,33 +90,38 @@ export function ItemEditorPanel({
       setError('Choose an environment.')
       return
     }
-    if (!isEdit && kind === 'secret' && !value) {
-      setError('Enter a value for this secret.')
+    if (kind === 'variable' && !value.trim()) {
+      setError('Enter a value for this variable.')
+      return
+    }
+    if (kind === 'secret' && (!isEdit || isRenaming) && !value) {
+      setError(
+        isRenaming
+          ? 'Enter a value — GitHub can’t copy a secret’s value when renaming it, so you’ll need to re-enter it under the new name.'
+          : 'Enter a value for this secret.',
+      )
       return
     }
 
     try {
       if (kind === 'variable') {
         if (isEdit) {
-          await updateVariable.mutateAsync({ scope: targetScope, level, name, value })
+          await updateVariable.mutateAsync({ scope: targetScope, level, currentName: initial!.name, newName: name, value })
         } else {
           await createVariable.mutateAsync({ scope: targetScope, level, name, value })
         }
       } else {
-        if (!value) {
+        const options: PutSecretOptions | undefined =
+          level === 'organization' ? { visibility, selectedRepositoryIds: [...selectedRepoIds] } : undefined
+
+        if (isEdit && isRenaming) {
+          await renameSecret.mutateAsync({ scope: targetScope, level, currentName: initial!.name, newName: name, value, options })
+        } else if (isEdit && !value) {
           onClose()
           return
+        } else {
+          await putSecret.mutateAsync({ scope: targetScope, level, name, value, options })
         }
-        await putSecret.mutateAsync({
-          scope: targetScope,
-          level,
-          name,
-          value,
-          options:
-            level === 'organization'
-              ? { visibility, selectedRepositoryIds: [...selectedRepoIds] }
-              : undefined,
-        })
       }
       onClose()
     } catch (err) {
@@ -196,16 +207,22 @@ export function ItemEditorPanel({
 
           <Field label="Name">
             <input
-              disabled={isEdit}
               autoFocus={!isEdit}
               value={name}
               onChange={(e) => setName(e.target.value.toUpperCase())}
               placeholder="API_URL"
               spellCheck={false}
-              className={`${inputClass} disabled:opacity-60`}
+              className={inputClass}
             />
             {!nameValid ? (
               <p className="mt-1 text-xs text-danger">Letters, numbers, and underscores only.</p>
+            ) : null}
+            {isRenaming && kind === 'secret' ? (
+              <p className="mt-1 text-xs text-text-dim">
+                Secrets can&rsquo;t be renamed directly — this creates{' '}
+                <span className="font-mono text-secret">{name || '…'}</span> with the value below, then deletes{' '}
+                <span className="font-mono">{initial!.name}</span>.
+              </p>
             ) : null}
           </Field>
 
