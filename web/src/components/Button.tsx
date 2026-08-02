@@ -11,10 +11,10 @@ const sizes = {
 }
 
 const variants: Record<Variant, string> = {
-  primary: 'bg-variable text-ink hover:bg-variable/90',
-  secondary: 'bg-panel-raised text-text border border-line hover:border-text-dim',
+  primary: 'bg-brand text-on-brand hover:bg-brand/90',
+  secondary: 'bg-ink text-text border border-line hover:border-text-dim',
   ghost: 'text-text-dim hover:text-text hover:bg-panel-raised',
-  danger: 'bg-danger/10 text-danger border border-danger/40 hover:bg-danger/20',
+  danger: 'bg-danger-dim text-danger border border-danger/30 hover:bg-danger/15',
 }
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

@@ -33,7 +33,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-[2px]"
       role="presentation"
       onClick={onCancel}
     >
@@ -41,7 +41,7 @@ export function ConfirmDialog({
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
-        className="w-full max-w-sm rounded-lg border border-line bg-panel p-5"
+        className="w-full max-w-sm rounded-xl border border-line bg-ink p-5 shadow-2xl shadow-black/10"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="confirm-title" className="font-sans text-base font-semibold text-text">

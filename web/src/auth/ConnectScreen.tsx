@@ -44,17 +44,33 @@ export function ConnectScreen() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-ink px-4">
-      <div className="w-full max-w-md">
-        <div className="mb-6 text-center">
-          <p className="font-mono text-xs tracking-widest text-variable uppercase"># github-variables-manager</p>
-          <h1 className="mt-2 font-sans text-2xl font-semibold text-text">Connect to GitHub</h1>
-          <p className="mt-1 text-sm text-text-dim">
-            One login, every variable and secret &mdash; org, repo, and environment &mdash; in a single view.
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-ink px-4">
+      <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+        <div className="absolute left-1/2 top-0 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/3 rounded-full bg-brand/10 blur-3xl" />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: 'radial-gradient(var(--color-line) 1px, transparent 1px)',
+            backgroundSize: '26px 26px',
+            maskImage: 'radial-gradient(ellipse 60% 55% at 50% 35%, black 35%, transparent 100%)',
+            WebkitMaskImage: 'radial-gradient(ellipse 60% 55% at 50% 35%, black 35%, transparent 100%)',
+          }}
+        />
+      </div>
+
+      <div className="relative w-full max-w-md">
+        <div className="mb-7 text-center">
+          <span className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-brand font-display text-base font-bold text-on-brand">
+            G
+          </span>
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-text">Variables Manager</h1>
+          <p className="mx-auto mt-2 max-w-sm text-sm text-text-dim">
+            One login, every GitHub Actions variable and secret — organization, repository, and environment — in a
+            single view.
           </p>
         </div>
 
-        <div className="rounded-lg border border-line bg-panel">
+        <div className="rounded-xl border border-line bg-panel shadow-xl shadow-black/[0.04]">
           <div className="flex border-b border-line">
             <TabButton active={tab === 'pat'} onClick={() => setTab('pat')}>
               Personal access token
@@ -77,10 +93,10 @@ export function ConnectScreen() {
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
                 placeholder="ghp_..."
-                className="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-variable focus:outline-none"
+                className="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
               />
               <p className="text-xs text-text-dim">
-                Needs <code className="text-variable">repo</code> and <code className="text-variable">admin:org</code>{' '}
+                Needs <code className="text-brand">repo</code> and <code className="text-brand">admin:org</code>{' '}
                 scopes to read and write variables/secrets at every level. Held only in this tab&rsquo;s session storage
                 &mdash; never written to disk.
               </p>
@@ -129,9 +145,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={`flex-1 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
-        active
-          ? 'border-variable text-text'
-          : 'border-transparent text-text-dim hover:text-text'
+        active ? 'border-brand text-text' : 'border-transparent text-text-dim hover:text-text'
       }`}
     >
       {children}

@@ -1,22 +1,51 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
 @import "tailwindcss";
 
 @theme {
+  --font-display: "Space Grotesk", "IBM Plex Sans", ui-sans-serif, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
 
-  --color-ink: #12141c;
-  --color-panel: #1b1e29;
-  --color-panel-raised: #232635;
-  --color-line: #2e3140;
-  --color-text: #e4e4e9;
-  --color-text-dim: #9497a8;
-  --color-variable: #d9a441;
-  --color-variable-dim: #4a3d22;
-  --color-secret: #8b7fd1;
-  --color-secret-dim: #2f2a47;
-  --color-danger: #c4544b;
-  --color-ok: #6fa96b;
+  /* Light (default) */
+  --color-ink: #ffffff;
+  --color-panel: #f8f9fb;
+  --color-panel-raised: #eff1f5;
+  --color-line: #e3e6eb;
+  --color-text: #14171c;
+  --color-text-dim: #6b7280;
+
+  --color-brand: #0e6b5c;
+  --color-brand-dim: #e3f1ee;
+  --color-on-brand: #ffffff;
+  --color-variable: #8a5a22;
+  --color-variable-dim: #fbf0df;
+  --color-secret: #6b4a8a;
+  --color-secret-dim: #f1e9f7;
+  --color-danger: #b3261e;
+  --color-danger-dim: #fbeae9;
+  --color-ok: #1e7d4b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-ink: #0b0d10;
+    --color-panel: #15171b;
+    --color-panel-raised: #1f2227;
+    --color-line: #2a2e35;
+    --color-text: #edeef0;
+    --color-text-dim: #9a9fa8;
+
+    --color-brand: #3fbba3;
+    --color-brand-dim: #123b34;
+    --color-on-brand: #062420;
+    --color-variable: #d6a24e;
+    --color-variable-dim: #3a2c14;
+    --color-secret: #b69ad6;
+    --color-secret-dim: #2e2440;
+    --color-danger: #e5605a;
+    --color-danger-dim: #3a1917;
+    --color-ok: #4cc98a;
+  }
 }
 
 * {
@@ -24,7 +53,7 @@
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light dark;
 }
 
 body {
@@ -40,12 +69,12 @@ body {
 }
 
 ::selection {
-  background-color: var(--color-variable-dim);
-  color: var(--color-variable);
+  background-color: var(--color-brand-dim);
+  color: var(--color-brand);
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-variable);
+  outline: 2px solid var(--color-brand);
   outline-offset: 2px;
 }
 

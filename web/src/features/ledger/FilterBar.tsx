@@ -38,7 +38,7 @@ export function FilterBar({ filters, onChange, environments, showRepoLevels, sho
 
       {showRepoLevels && environments.length > 0 ? (
         <select
-          className="rounded-md border border-line bg-panel px-2.5 py-1.5 font-sans text-xs text-text-dim focus:border-variable focus:text-text focus:outline-none"
+          className="rounded-md border border-line bg-ink px-2.5 py-1.5 font-sans text-xs text-text-dim focus:border-brand focus:text-text focus:outline-none"
           value={filters.env}
           onChange={(e) => onChange({ ...filters, env: e.target.value })}
         >
@@ -55,7 +55,7 @@ export function FilterBar({ filters, onChange, environments, showRepoLevels, sho
         value={filters.search}
         onChange={(e) => onChange({ ...filters, search: e.target.value })}
         placeholder="Filter by name&hellip;"
-        className="ml-auto min-w-[10rem] rounded-md border border-line bg-panel px-2.5 py-1.5 font-mono text-xs text-text placeholder:text-text-dim/60 focus:border-variable focus:outline-none"
+        className="ml-auto min-w-[10rem] rounded-md border border-line bg-ink px-2.5 py-1.5 font-mono text-xs text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
       />
     </div>
   )
@@ -71,7 +71,7 @@ function Pills<T extends string>({
   onChange: (value: T) => void
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-md border border-line bg-panel p-0.5">
+    <div className="flex items-center gap-0.5 rounded-md border border-line bg-ink p-0.5">
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -79,7 +79,7 @@ function Pills<T extends string>({
           onClick={() => onChange(opt.value)}
           aria-pressed={value === opt.value}
           className={`rounded px-2.5 py-1 font-sans text-xs font-medium transition-colors ${
-            value === opt.value ? 'bg-panel-raised text-text' : 'text-text-dim hover:text-text'
+            value === opt.value ? 'bg-brand-dim text-brand' : 'text-text-dim hover:text-text'
           }`}
         >
           {opt.label}

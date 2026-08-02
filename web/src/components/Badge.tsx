@@ -1,4 +1,4 @@
-import type { ItemKind, ItemLevel } from '../api/types'
+import type { ItemKind } from '../api/types'
 
 const kindStyles: Record<ItemKind, string> = {
   variable: 'bg-variable-dim text-variable',
@@ -18,14 +18,4 @@ export function KindBadge({ kind }: { kind: ItemKind }) {
       {kindLabel[kind]}
     </span>
   )
-}
-
-const levelLabel: Record<ItemLevel, string> = {
-  organization: 'organization',
-  repository: 'repository',
-  environment: 'environment',
-}
-
-export function levelHeading(level: ItemLevel): string {
-  return levelLabel[level]
 }

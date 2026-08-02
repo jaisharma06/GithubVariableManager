@@ -120,7 +120,7 @@ export function OAuthDeviceFlow({ onSuccess }: OAuthDeviceFlowProps) {
   return (
     <div className="space-y-3 text-center">
       <p className="text-xs text-text-dim">Enter this code at GitHub to finish signing in:</p>
-      <p className="select-all rounded-md border border-line bg-ink py-3 font-mono text-2xl tracking-[0.3em] text-variable">
+      <p className="select-all rounded-md border border-line bg-ink py-3 font-mono text-2xl tracking-[0.3em] text-brand">
         {device.userCode}
       </p>
       {copied ? <p className="text-xs text-text-dim">Copied to your clipboard.</p> : null}
@@ -133,7 +133,7 @@ export function OAuthDeviceFlow({ onSuccess }: OAuthDeviceFlowProps) {
         Open {device.verificationUri.replace('https://', '')} &rarr;
       </a>
       <p className="font-mono text-xs text-text-dim">
-        <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-variable align-middle" />
+        <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand align-middle" />
         Waiting for approval&hellip;
       </p>
     </div>

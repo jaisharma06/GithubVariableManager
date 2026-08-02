@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import {
   useDeleteSecret,
@@ -10,6 +10,8 @@ import {
   type DashboardScope,
 } from '../../api/hooks'
 import { Ledger } from '../ledger/Ledger'
+import { defaultFilters, type LedgerFilters } from '../ledger/FilterBar'
+import { ScopeSidebar } from './ScopeSidebar'
 import { RateLimitIndicator } from '../../components/RateLimitIndicator'
 import { ItemEditorPanel } from '../item-editor/ItemEditorPanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -39,9 +41,18 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
   const deleteVariable = useDeleteVariable(token)
   const deleteSecret = useDeleteSecret(token)
 
+  const [filters, setFilters] = useState<LedgerFilters>(defaultFilters)
   const [editorState, setEditorState] = useState<EditorState>(null)
   const [deleteTarget, setDeleteTarget] = useState<LedgerItem | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  function handleSidebarNavigate(level: LedgerFilters['level'], env?: string) {
+    if (level === 'all') {
+      setFilters(defaultFilters)
+    } else {
+      setFilters((f) => ({ ...f, level, env: env ?? 'all' }))
+    }
+  }
 
   async function handleConfirmDelete() {
     if (!deleteTarget) return
@@ -62,46 +73,60 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4">
-        <div>
-          <p className="font-mono text-xs text-text-dim">
-            <Link to="/" className="hover:text-variable">
-              scopes
-            </Link>
-            {breadcrumb.map((part, i) => (
-              <span key={i}>
-                {' / '}
-                <span className={i === breadcrumb.length - 1 ? 'text-variable' : ''}>{part}</span>
-              </span>
-            ))}
-          </p>
-          <h1 className="mt-1 font-sans text-lg font-semibold text-text">{breadcrumb.join('/')}</h1>
+    <div className="flex min-h-screen bg-ink">
+      <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-panel">
+        <div className="flex items-center gap-2 border-b border-line px-4 py-4">
+          <span className="flex h-6 w-6 items-center justify-center rounded bg-brand font-display text-xs font-bold text-on-brand">
+            G
+          </span>
+          <span className="truncate font-display text-sm font-semibold text-text">Variables Manager</span>
         </div>
-        <div className="flex items-center gap-4">
-          <RateLimitIndicator />
-          {viewer ? <span className="text-sm text-text-dim">{viewer.login}</span> : null}
-          <button onClick={disconnect} className="text-sm text-secret hover:underline">
-            Disconnect
-          </button>
-        </div>
-      </header>
 
-      <main className="flex flex-1 flex-col gap-4 p-6">
-        <Ledger
-          items={ledgerQuery.data?.items ?? []}
-          isLoading={ledgerQuery.isLoading}
-          error={ledgerQuery.error as Error | null}
-          partialErrors={ledgerQuery.data?.partialErrors}
-          environments={environmentsQuery.data ?? []}
-          showRepoLevels={!!scope.repo}
-          showOrgLevel={showOrgLevel}
-          onAdd={() => setEditorState({ mode: 'create' })}
-          onAddToSection={(level, env) => setEditorState({ mode: 'create', level, env })}
-          onEdit={(item) => setEditorState({ mode: 'edit', item })}
-          onDelete={(item) => setDeleteTarget(item)}
-        />
-      </main>
+        <div className="flex-1 overflow-y-auto px-2 py-4">
+          <ScopeSidebar
+            org={scope.org}
+            repo={scope.repo}
+            environments={environmentsQuery.data ?? []}
+            showOrgLevel={showOrgLevel}
+            filters={filters}
+            onNavigate={handleSidebarNavigate}
+          />
+        </div>
+
+        <div className="border-t border-line px-4 py-3">
+          <div className="flex items-center justify-between gap-2">
+            {viewer ? <span className="truncate text-xs text-text-dim">{viewer.login}</span> : null}
+            <button onClick={disconnect} className="shrink-0 text-xs text-secret hover:underline">
+              Disconnect
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4">
+          <h1 className="font-display text-lg font-semibold text-text">{breadcrumb.join(' / ')}</h1>
+          <RateLimitIndicator />
+        </header>
+
+        <main className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
+          <Ledger
+            items={ledgerQuery.data?.items ?? []}
+            isLoading={ledgerQuery.isLoading}
+            error={ledgerQuery.error as Error | null}
+            partialErrors={ledgerQuery.data?.partialErrors}
+            environments={environmentsQuery.data ?? []}
+            showRepoLevels={!!scope.repo}
+            showOrgLevel={showOrgLevel}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onAdd={() => setEditorState({ mode: 'create' })}
+            onAddToSection={(level, env) => setEditorState({ mode: 'create', level, env })}
+            onEdit={(item) => setEditorState({ mode: 'edit', item })}
+            onDelete={(item) => setDeleteTarget(item)}
+          />
+        </main>
+      </div>
 
       {editorState ? (
         <ItemEditorPanel

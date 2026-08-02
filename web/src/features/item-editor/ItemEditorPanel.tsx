@@ -128,17 +128,15 @@ export function ItemEditorPanel({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-ink/70" role="presentation" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-[2px]" role="presentation" onClick={onClose}>
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-line bg-panel"
+        className="flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-line bg-panel shadow-2xl shadow-black/10"
       >
         <div className="border-b border-line px-5 py-4">
-          <p className="font-mono text-xs uppercase tracking-widest text-variable">
-            {isEdit ? '# edit' : '# add'}
-          </p>
-          <h2 className="mt-1 font-sans text-lg font-semibold text-text">
+          <p className="font-mono text-xs uppercase tracking-widest text-brand">{isEdit ? 'Edit' : 'Add'}</p>
+          <h2 className="mt-1 font-display text-lg font-semibold text-text">
             {isEdit ? initial!.name : 'New variable or secret'}
           </h2>
         </div>
@@ -180,8 +178,18 @@ export function ItemEditorPanel({
               <p className="font-mono text-sm text-text-dim">{kind}</p>
             ) : (
               <div className="flex gap-2">
-                <KindOption label="Variable" active={kind === 'variable'} onClick={() => setKind('variable')} />
-                <KindOption label="Secret" active={kind === 'secret'} onClick={() => setKind('secret')} />
+                <KindOption
+                  label="Variable"
+                  tone="variable"
+                  active={kind === 'variable'}
+                  onClick={() => setKind('variable')}
+                />
+                <KindOption
+                  label="Secret"
+                  tone="secret"
+                  active={kind === 'secret'}
+                  onClick={() => setKind('secret')}
+                />
               </div>
             )}
           </Field>
@@ -265,7 +273,7 @@ export function ItemEditorPanel({
 }
 
 const inputClass =
-  'w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-variable focus:outline-none'
+  'w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none'
 const selectClass = inputClass
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -277,13 +285,28 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function KindOption({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+const kindToneClass: Record<'variable' | 'secret', string> = {
+  variable: 'border-variable bg-variable-dim text-variable',
+  secret: 'border-secret bg-secret-dim text-secret',
+}
+
+function KindOption({
+  label,
+  tone,
+  active,
+  onClick,
+}: {
+  label: string
+  tone: 'variable' | 'secret'
+  active: boolean
+  onClick: () => void
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-        active ? 'border-variable bg-variable-dim text-variable' : 'border-line text-text-dim hover:text-text'
+        active ? kindToneClass[tone] : 'border-line text-text-dim hover:text-text'
       }`}
     >
       {label}

@@ -25,9 +25,11 @@ export function ScopePicker() {
   return (
     <div className="min-h-screen bg-ink">
       <header className="flex items-center justify-between border-b border-line px-6 py-4">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-widest text-variable"># github-variables-manager</p>
-          <h1 className="mt-1 font-sans text-lg font-semibold text-text">Pick a scope</h1>
+        <div className="flex items-center gap-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand font-display text-sm font-bold text-on-brand">
+            G
+          </span>
+          <h1 className="font-display text-lg font-semibold text-text">Pick a scope</h1>
         </div>
         <div className="flex items-center gap-3 text-sm text-text-dim">
           {viewer ? <span>Connected as {viewer.login}</span> : null}
@@ -43,7 +45,7 @@ export function ScopePicker() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search organizations and repositories&hellip;"
-          className="w-full rounded-md border border-line bg-panel px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-variable focus:outline-none"
+          className="w-full rounded-md border border-line bg-panel px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
         />
 
         {loading ? (
@@ -99,10 +101,10 @@ function Section({
   const hasChildren = Array.isArray(children) ? children.length > 0 : !!children
   return (
     <section>
-      <p className="font-mono text-xs uppercase tracking-widest text-text-dim">{title}</p>
+      <p className="font-display text-xs font-semibold uppercase tracking-wider text-text-dim">{title}</p>
       <p className="mb-2 mt-0.5 text-xs text-text-dim">{helper}</p>
       {hasChildren ? (
-        <div className="overflow-hidden rounded-md border border-line">{children}</div>
+        <div className="overflow-hidden rounded-lg border border-line">{children}</div>
       ) : (
         <p className="text-sm text-text-dim">{empty}</p>
       )}
@@ -114,12 +116,12 @@ function Row({ label, meta, onClick }: { label: string; meta?: string; onClick: 
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center justify-between border-b border-line bg-panel px-4 py-3 text-left last:border-b-0 hover:bg-panel-raised"
+      className="group flex w-full items-center justify-between border-b border-line bg-panel px-4 py-3 text-left last:border-b-0 hover:bg-panel-raised"
     >
-      <span className="font-mono text-sm text-text">{label}</span>
-      <span className="flex items-center gap-3">
+      <span className="truncate font-mono text-sm text-text">{label}</span>
+      <span className="flex shrink-0 items-center gap-3">
         {meta ? <span className="text-xs text-text-dim">{meta}</span> : null}
-        <span className="text-text-dim">&rarr;</span>
+        <span className="text-text-dim transition-colors group-hover:text-brand">&rarr;</span>
       </span>
     </button>
   )
