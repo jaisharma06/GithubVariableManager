@@ -1,0 +1,61 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --color-ink: #12141c;
+  --color-panel: #1b1e29;
+  --color-panel-raised: #232635;
+  --color-line: #2e3140;
+  --color-text: #e4e4e9;
+  --color-text-dim: #9497a8;
+  --color-variable: #d9a441;
+  --color-variable-dim: #4a3d22;
+  --color-secret: #8b7fd1;
+  --color-secret-dim: #2f2a47;
+  --color-danger: #c4544b;
+  --color-ok: #6fa96b;
+}
+
+* {
+  border-color: var(--color-line);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background-color: var(--color-variable-dim);
+  color: var(--color-variable);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-variable);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
