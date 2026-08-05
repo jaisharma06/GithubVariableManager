@@ -57,4 +57,9 @@ export class ScopePickerComponent implements AfterViewInit {
   protected GoToRepo(owner: string, name: string): void {
     void this.router.navigate(['/r', owner, name]);
   }
+
+  protected HandleDisconnect(): void {
+    this.authService.SignOut();
+    void this.router.navigateByUrl('/connect');
+  }
 }

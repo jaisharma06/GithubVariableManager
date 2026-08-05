@@ -11,6 +11,7 @@ import type { IRunnersGateway } from '../gateways/IRunnersGateway';
 import type { IScopesGateway } from '../gateways/IScopesGateway';
 import type { ISecretsGateway } from '../gateways/ISecretsGateway';
 import type { IVariablesGateway } from '../gateways/IVariablesGateway';
+import type { IWorkflowsGateway } from '../gateways/IWorkflowsGateway';
 
 const SESSION_STORAGE_KEY = 'ghvm.session';
 
@@ -78,4 +79,8 @@ export function CreateFakeRunnersGateway(): jasmine.SpyObj<IRunnersGateway> {
 
 export function CreateFakeOAuthGateway(): jasmine.SpyObj<IOAuthGateway> {
   return jasmine.createSpyObj<IOAuthGateway>('IOAuthGateway', ['FetchOAuthClientId', 'StartDeviceFlow', 'PollDeviceToken']);
+}
+
+export function CreateFakeWorkflowsGateway(): jasmine.SpyObj<IWorkflowsGateway> {
+  return jasmine.createSpyObj<IWorkflowsGateway>('IWorkflowsGateway', ['ListWorkflows', 'ListWorkflowRuns', 'DeleteWorkflowRun']);
 }

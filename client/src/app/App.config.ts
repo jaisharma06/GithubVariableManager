@@ -18,6 +18,8 @@ import { SECRETS_GATEWAY } from './core/gateways/ISecretsGateway';
 import { GithubSecretsGateway } from './core/gateways/GithubSecretsGateway.service';
 import { VARIABLES_GATEWAY } from './core/gateways/IVariablesGateway';
 import { GithubVariablesGateway } from './core/gateways/GithubVariablesGateway.service';
+import { WORKFLOWS_GATEWAY } from './core/gateways/IWorkflowsGateway';
+import { GithubWorkflowsGateway } from './core/gateways/GithubWorkflowsGateway.service';
 
 import { routes } from './App.routes';
 
@@ -51,5 +53,6 @@ export const appConfig: ApplicationConfig = {
     { provide: RUNNERS_GATEWAY, useClass: GithubRunnersGateway },
     { provide: SCOPES_GATEWAY, useClass: GithubScopesGateway },
     { provide: OAUTH_GATEWAY, useClass: LocalOAuthGateway },
+    { provide: WORKFLOWS_GATEWAY, useClass: GithubWorkflowsGateway },
   ],
 };

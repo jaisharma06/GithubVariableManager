@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { ENVIRONMENTS_GATEWAY } from '../../core/gateways/IEnvironmentsGateway';
 import { RUNNERS_GATEWAY } from '../../core/gateways/IRunnersGateway';
@@ -67,6 +67,7 @@ describe('DashboardShellComponent', () => {
     await TestBed.configureTestingModule({
       imports: [DashboardShellComponent],
       providers: [
+        provideRouter([]),
         ProvideTestQueryClient(),
         { provide: ENVIRONMENTS_GATEWAY, useValue: fakeEnvironmentsGateway },
         { provide: SCOPES_GATEWAY, useValue: fakeScopesGateway },
@@ -179,5 +180,19 @@ describe('DashboardShellComponent', () => {
     await WaitFor(fixture, () => !(fixture.nativeElement as HTMLElement).textContent?.includes('Delete variable "API_URL"?'));
 
     expect(fakeVariablesGateway.DeleteVariable).toHaveBeenCalledWith(REPO_VARIABLE.scope, 'repository', 'API_URL');
+  });
+
+  it('navigates to /connect when Disconnect is clicked', async () => {
+    const { fixture } = await CreateFixture({ owner: 'acme-corp', repo: 'widgets' });
+    const router = TestBed.inject(Router);
+    spyOn(router, 'navigateByUrl').and.resolveTo(true);
+
+    const disconnectButton = Array.from(
+      fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+    ).find((b) => b.textContent?.trim() === 'Disconnect')!;
+    disconnectButton.click();
+    fixture.detectChanges();
+
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/connect');
   });
 });

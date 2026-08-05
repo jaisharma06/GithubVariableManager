@@ -1,0 +1,106 @@
+<div class="flex flex-1 gap-4 overflow-hidden">
+  <div class="flex w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-line bg-panel">
+    <div class="border-b border-line px-3 py-2.5">
+      <p class="font-sans text-[11px] font-medium uppercase tracking-wider text-text-dim">Workflows</p>
+    </div>
+    <div class="flex-1 overflow-y-auto p-1.5">
+      @if (workflowsQuery.isLoading()) {
+        <div class="space-y-1.5 p-1.5">
+          @for (i of [0, 1, 2]; track i) {
+            <div class="h-10 animate-pulse rounded-md bg-panel-raised"></div>
+          }
+        </div>
+      } @else if (workflowsQuery.error()) {
+        <p class="p-2 text-xs text-danger">{{ workflowsQuery.error()!.message }}</p>
+      } @else if (workflows().length === 0) {
+        <p class="p-2 text-xs text-text-dim">No workflows found in this repo.</p>
+      } @else {
+        @for (workflow of workflows(); track workflow.id) {
+          <button type="button" [class]="WorkflowRowClass(workflow)" (click)="SelectWorkflow(workflow)">
+            <span class="truncate font-sans text-sm text-text">{{ workflow.name }}</span>
+            <span class="flex w-full items-center justify-between gap-2">
+              <span class="truncate font-mono text-[11px] text-text-dim">{{ workflow.path }}</span>
+              <span class="shrink-0 font-mono text-[10px] uppercase tracking-wide" [class]="WorkflowStateClass(workflow)">
+                {{ WorkflowStateLabel(workflow) }}
+              </span>
+            </span>
+          </button>
+        }
+      }
+    </div>
+  </div>
+
+  <div class="flex flex-1 flex-col overflow-hidden rounded-xl border border-line bg-panel">
+    @if (!selectedWorkflow()) {
+      <div class="flex flex-1 items-center justify-center p-6 text-center">
+        <p class="text-sm text-text-dim">Pick a workflow on the left to see its recent runs.</p>
+      </div>
+    } @else {
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+        <div class="min-w-0">
+          <p class="truncate font-display text-sm font-semibold text-text">{{ selectedWorkflow()!.name }}</p>
+          <p class="truncate font-mono text-[11px] text-text-dim">{{ selectedWorkflow()!.path }}</p>
+        </div>
+        <button
+          type="button"
+          (click)="OpenConfirmDelete(selectedWorkflow()!)"
+          [disabled]="selectedRunIds().size === 0"
+          class="shrink-0 rounded-md border border-danger/30 bg-danger-dim px-2.5 py-1.5 font-sans text-xs font-medium text-danger transition-colors hover:bg-danger/15 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Delete selected
+        </button>
+      </div>
+
+      @if (runDeleteError()) {
+        <div class="border-b border-line bg-danger-dim px-4 py-2">
+          <p class="text-xs text-danger">{{ runDeleteError() }}</p>
+        </div>
+      }
+
+      <div class="flex-1 overflow-auto">
+        @if (runsQuery.isLoading()) {
+          <div class="space-y-2 p-4">
+            @for (i of [0, 1, 2, 3]; track i) {
+              <div class="h-8 animate-pulse rounded-md bg-panel-raised"></div>
+            }
+          </div>
+        } @else if (runsQuery.error()) {
+          <p class="p-4 text-sm text-danger">{{ runsQuery.error()!.message }}</p>
+        } @else {
+          <app-workflow-runs-list
+            [runs]="runs()"
+            [deletingRunId]="deletingRunId()"
+            [selectedRunIds]="selectedRunIds()"
+            (deleteRun)="HandleDeleteRun($event)"
+            (toggleRun)="HandleToggleRun($event)"
+            (toggleSelectAll)="HandleToggleSelectAll()"
+          />
+        }
+      </div>
+    }
+  </div>
+</div>
+
+@if (confirmDelete(); as workflow) {
+  <app-confirm-dialog
+    [title]="deleteTitle()"
+    confirmLabel="Delete runs"
+    [error]="deleteError()"
+    [confirming]="deletePending()"
+    (confirmed)="HandleConfirmDelete()"
+    (cancelled)="HandleCancelDelete()"
+  >
+    <p>
+      This deletes the {{ selectedRunIds().size }} selected run(s) of <span class="font-mono text-text">{{ workflow.name }}</span> one at
+      a time, so it can take a while if you&rsquo;ve selected a lot. This can&rsquo;t be undone.
+    </p>
+    <p class="mt-2">
+      This only clears run history — it doesn&rsquo;t remove the workflow definition. If
+      <span class="font-mono text-text">{{ workflow.path }}</span> still exists in the repo, GitHub may list this workflow again once it
+      runs again (or the next time the workflow list refreshes).
+    </p>
+    @if (deleteProgressLabel(); as label) {
+      <p class="mt-2 text-text-dim">{{ label }}</p>
+    }
+  </app-confirm-dialog>
+}

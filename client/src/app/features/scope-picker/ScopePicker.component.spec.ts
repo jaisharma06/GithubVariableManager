@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
 import { CreateFakeScopesGateway, ProvideTestQueryClient } from '../../core/testing/TestDoubles';
 import { WaitFor } from '../../core/testing/WaitFor';
@@ -58,5 +58,18 @@ describe('ScopePickerComponent', () => {
 
   it('shows "Connected as <login>"', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Connected as octocat');
+  });
+
+  it('navigates to /connect when Disconnect is clicked', () => {
+    const router = TestBed.inject(Router);
+    spyOn(router, 'navigateByUrl').and.resolveTo(true);
+
+    const disconnectButton = Array.from(
+      fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+    ).find((b) => b.textContent?.trim() === 'Disconnect')!;
+    disconnectButton.click();
+    fixture.detectChanges();
+
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/connect');
   });
 });

@@ -12,7 +12,7 @@
       @if (authService.viewer(); as viewer) {
         <span>Connected as {{ viewer.login }}</span>
       }
-      <button (click)="authService.SignOut()" class="text-secret hover:underline">Disconnect</button>
+      <button (click)="HandleDisconnect()" class="text-secret hover:underline">Disconnect</button>
     </div>
   </header>
 

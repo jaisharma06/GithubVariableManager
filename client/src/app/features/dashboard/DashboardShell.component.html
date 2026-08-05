@@ -30,7 +30,7 @@
             <span class="truncate text-xs text-text-dim">{{ viewer.login }}</span>
           </span>
         }
-        <button (click)="authService.SignOut()" class="shrink-0 text-xs text-secret hover:underline">Disconnect</button>
+        <button (click)="HandleDisconnect()" class="shrink-0 text-xs text-secret hover:underline">Disconnect</button>
       </div>
     </div>
   </aside>
@@ -63,6 +63,17 @@
             >
               Compare
             </button>
+            <button
+              type="button"
+              (click)="viewMode.set('workflows')"
+              [attr.aria-pressed]="viewMode() === 'workflows'"
+              class="rounded px-2.5 py-1 font-sans text-xs font-medium transition-colors"
+              [class.bg-brand-dim]="viewMode() === 'workflows'"
+              [class.text-brand]="viewMode() === 'workflows'"
+              [class.text-text-dim]="viewMode() !== 'workflows'"
+            >
+              Workflows
+            </button>
           </div>
         }
         <app-rate-limit-indicator />
@@ -79,6 +90,8 @@
           [isLoading]="ledgerQuery.isLoading()"
           [error]="ledgerQuery.error()"
         />
+      } @else if (viewMode() === 'workflows' && scope().repo) {
+        <app-workflows-view [org]="scope().org" [repo]="scope().repo!" />
       } @else {
         <app-ledger
           [items]="ledgerItems()"

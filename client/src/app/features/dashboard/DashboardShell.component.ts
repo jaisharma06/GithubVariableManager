@@ -1,6 +1,6 @@
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Component, computed, effect, inject, signal } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService } from '../../core/services/AuthService';
 import { LastScopeService } from '../../core/services/LastScopeService';
 import { EnvironmentsFacade } from '../../core/facades/EnvironmentsFacade';
@@ -20,6 +20,7 @@ import { DEFAULT_FILTERS, type LedgerFilters } from '../ledger/LedgerFilters';
 import { RenameEnvironmentDialogComponent, type EnvironmentRenamedEvent } from './RenameEnvironmentDialog.component';
 import { RunnersPanelComponent } from './RunnersPanel.component';
 import { ScopeSidebarComponent, type ScopeNavigateEvent } from './ScopeSidebar.component';
+import { WorkflowsViewComponent } from '../workflows/WorkflowsView.component';
 
 /** What's being added/edited — mirrors web/src/features/dashboard/Dashboard.tsx's EditorState. */
 type EditorState = { mode: 'create'; level?: ItemLevel; env?: string } | { mode: 'edit'; item: LedgerItem } | null;
@@ -45,11 +46,13 @@ type EditorState = { mode: 'create'; level?: ItemLevel; env?: string } | { mode:
     ItemEditorPanelComponent,
     CopyItemDialogComponent,
     CompareViewComponent,
+    WorkflowsViewComponent,
   ],
   templateUrl: './DashboardShell.component.html',
 })
 export class DashboardShellComponent {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   protected readonly authService = inject(AuthService);
   private readonly lastScopeService = inject(LastScopeService);
   private readonly environmentsFacade = inject(EnvironmentsFacade);
@@ -90,7 +93,7 @@ export class DashboardShellComponent {
   protected readonly envToDelete = signal<string | null>(null);
   protected readonly envDeleteError = signal<string | null>(null);
   protected readonly envToRename = signal<string | null>(null);
-  protected readonly viewMode = signal<'list' | 'compare'>('list');
+  protected readonly viewMode = signal<'list' | 'compare' | 'workflows'>('list');
   protected readonly editorState = signal<EditorState>(null);
   protected readonly copyTarget = signal<LedgerItem | null>(null);
   protected readonly deleteTarget = signal<LedgerItem | null>(null);
@@ -178,5 +181,10 @@ export class DashboardShellComponent {
   protected HandleCancelDeleteItem(): void {
     this.deleteTarget.set(null);
     this.deleteError.set(null);
+  }
+
+  protected HandleDisconnect(): void {
+    this.authService.SignOut();
+    void this.router.navigateByUrl('/connect');
   }
 }

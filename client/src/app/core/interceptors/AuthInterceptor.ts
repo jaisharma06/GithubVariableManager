@@ -1,5 +1,6 @@
 import { HttpErrorResponse, type HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
+import { Router } from '@angular/router';
 import { catchError, throwError } from 'rxjs';
 import { AUTH_TOKEN_OVERRIDE } from '../gateways/GithubHttp.service';
 import { AuthService } from '../services/AuthService';
@@ -17,6 +18,7 @@ import { AuthService } from '../services/AuthService';
 // eslint-disable-next-line @typescript-eslint/naming-convention
 export const AuthInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
+  const router = inject(Router);
   const token = req.context.get(AUTH_TOKEN_OVERRIDE) ?? authService.token();
 
   // .set() takes the header name as a plain string argument, not a declared property key, so
@@ -26,11 +28,12 @@ export const AuthInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(authedReq).pipe(
     catchError((err: unknown) => {
-      // The stored token was revoked/expired server-side — clear the session so the user lands
-      // back on /connect instead of seeing a wall of failed requests. Direct successor to
-      // web/src/api/client.ts calling notifyUnauthorized() on a 401.
+      // The stored token was revoked/expired server-side — clear the session and navigate back to
+      // /connect ourselves instead of leaving the user staring at a wall of failed requests.
+      // Direct successor to web/src/api/client.ts calling notifyUnauthorized() on a 401.
       if (err instanceof HttpErrorResponse && err.status === 401) {
         authService.SignOut();
+        void router.navigateByUrl('/connect');
       }
       return throwError(() => err);
     }),

@@ -7,14 +7,16 @@
   `scope`/`breadcrumb` from them. Wires `EnvironmentsFacade.EnvironmentsQuery`,
   `ScopesFacade.IsOrgAccountQuery`, and `LedgerFacade.LedgerQuery`. Owns all modal state (which
   editor/copy/delete/rename dialog is open) as component signals. Renders `ScopeSidebarComponent` +
-  `RunnersPanelComponent` in the fixed sidebar, and a List/Compare toggle in the main area.
-  `<main>` renders `app-ledger` (`features/ledger/`) or `app-compare-view` (`features/compare/`)
-  depending on `viewMode()`. Every ledger-row action is fully real: delete → `ItemMutationsFacade`
-  + `ConfirmDialogComponent`; add/edit → `editorState` signal rendering `ItemEditorPanelComponent`
-  (`features/item-editor/`); copy → `copyTarget` signal rendering `CopyItemDialogComponent`
-  (`features/ledger/CopyItemDialog.component.ts`). `CompareViewComponent` owns its own equivalent
-  dialog state internally rather than routing through this shell — see
-  `features/compare/README.md` for why.
+  `RunnersPanelComponent` in the fixed sidebar, and a List/Compare/Workflows toggle in the main
+  area (the latter two only shown for a repo scope). `<main>` renders `app-ledger`
+  (`features/ledger/`), `app-compare-view` (`features/compare/`), or `app-workflows-view`
+  (`features/workflows/`) depending on `viewMode()`. Every ledger-row action is fully real: delete →
+  `ItemMutationsFacade` + `ConfirmDialogComponent`; add/edit → `editorState` signal rendering
+  `ItemEditorPanelComponent` (`features/item-editor/`); copy → `copyTarget` signal rendering
+  `CopyItemDialogComponent` (`features/ledger/CopyItemDialog.component.ts`). `CompareViewComponent`
+  and `WorkflowsViewComponent` each own their own equivalent dialog state internally rather than
+  routing through this shell — see `features/compare/README.md` / `features/workflows/README.md`
+  for why.
 - **`ScopeSidebar.component.ts`/`.html`** — org/repo header, environment list with per-environment
   rename/delete affordances, "+ New environment" inline form. Injects `EnvironmentsFacade` directly
   (not solely via `output()`) for the create-environment flow — documented in a comment on the

@@ -78,3 +78,21 @@ export interface DashboardScope {
   org: string;
   repo?: string;
 }
+
+export interface GithubWorkflow {
+  id: number;
+  name: string;
+  path: string;
+  state: 'active' | 'deleted' | 'disabled_fork' | 'disabled_inactivity' | 'disabled_manually';
+}
+
+export interface WorkflowRun {
+  id: number;
+  name: string | null;
+  status: string | null;
+  conclusion: string | null;
+  runNumber: number;
+  createdAt: string;
+  updatedAt: string;
+  htmlUrl: string;
+}

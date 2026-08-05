@@ -22,6 +22,7 @@ This tool connects to GitHub with your own credentials and gives you one filtera
 - **Compare view** — a matrix of every name across whichever environments (and repo/org) you select, with inline edit, per-cell copy, and one-click "delete this from every scope it's in" with a warning listing exactly what's affected.
 - **Rename an environment** — GitHub has no rename API for environments, so this creates the new one, copies every variable's value across, and removes the old one (secrets can't be silently carried over — see below — so you're asked to re-add them and confirm before the old environment is deleted).
 - **Self-hosted runners at a glance** — a sidebar panel showing every runner assigned to the repo (or org), with live online/offline/busy status.
+- **Workflows and run history cleanup** — browse a repo's GitHub Actions workflows, see a workflow's latest 30 runs with live status, check off any subset of them (or "select all" for everything currently shown), and bulk-delete the selected run history in one confirmation (GitHub has no bulk-delete API, so this is one delete call per run, batched with progress shown). This is irreversible, and since it only clears run history rather than the workflow definition itself, GitHub may re-list the workflow again once it runs again if its YAML file is still in the repo — the confirmation dialog says so up front.
 - **Org-secret visibility control** — choose whether a new organization secret is available to all repos, private repos only, or a hand-picked selection.
 - **Honest about secrets** — secret values are never fetched or displayed, because GitHub doesn't allow it; the UI explains why instead of pretending otherwise, everywhere that constraint matters (copy, rename, compare).
 - **Nothing persisted server-side** — no database; your token lives only in your browser's local storage, never on disk anywhere else and never sent anywhere except `api.github.com`.
@@ -149,7 +150,8 @@ GithubVariablesManager/
 │       │   ├── dashboard/        # Screen shell: sidebar, runners panel, rename-environment dialog
 │       │   ├── ledger/           # The main variables/secrets list + copy-to-scopes dialog
 │       │   ├── item-editor/      # Create/edit slide-over panel
-│       │   └── compare/          # Matrix view for comparing/editing across scopes
+│       │   ├── compare/          # Matrix view for comparing/editing across scopes
+│       │   └── workflows/        # Browse workflows, view runs, bulk-delete run history
 │       └── shared/components/    # Shared UI primitives (Button, KindBadge, ConfirmDialog, Avatar, …)
 ├── server/                     # Express — OAuth device-flow relay only, no database
 │   └── src/

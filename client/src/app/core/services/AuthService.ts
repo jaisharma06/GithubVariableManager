@@ -42,6 +42,8 @@ export class AuthService {
     this.sessionSignal.set(next);
   }
 
+  // Deliberately navigation-free — every caller (ScopePickerComponent, DashboardShellComponent,
+  // AuthInterceptor) is responsible for navigating to '/connect' itself after calling this.
   SignOut(): void {
     localStorage.removeItem(STORAGE_KEY);
     this.sessionSignal.set(null);

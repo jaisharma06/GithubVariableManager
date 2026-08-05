@@ -1,0 +1,52 @@
+@if (runs().length === 0) {
+  <p class="p-4 text-sm text-text-dim">No runs yet for this workflow.</p>
+} @else {
+  <div class="min-w-[36rem]">
+    <div
+      class="grid grid-cols-[2.5rem_5rem_1fr_10rem_10rem_4rem] items-center border-b border-line px-3 py-1.5 font-sans text-[11px] font-medium uppercase tracking-wider text-text-dim"
+    >
+      <span>
+        <input type="checkbox" [checked]="AllSelected()" [indeterminate]="SomeSelected()" (change)="HandleToggleSelectAll()" />
+      </span>
+      <span>Run</span>
+      <span>Status</span>
+      <span>Created</span>
+      <span>Updated</span>
+      <span></span>
+    </div>
+    <div>
+      @for (run of runs(); track run.id) {
+        <div
+          class="group grid grid-cols-[2.5rem_5rem_1fr_10rem_10rem_4rem] items-center border-b border-line px-3 py-2 last:border-b-0 hover:bg-panel-raised"
+        >
+          <span>
+            <input type="checkbox" [checked]="selectedRunIds().has(run.id)" (change)="HandleToggleRun(run.id)" />
+          </span>
+          <a [href]="run.htmlUrl" target="_blank" rel="noreferrer" class="font-mono text-xs text-text hover:text-brand hover:underline">
+            #{{ run.runNumber }}
+          </a>
+          <span class="flex items-center gap-1.5">
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full" [class]="WorkflowRunDotClass(run)" aria-hidden="true"></span>
+            <span class="text-xs" [class]="WorkflowRunStatusClass(run)">{{ WorkflowRunStatusLabel(run) }}</span>
+          </span>
+          <span class="truncate text-xs text-text-dim">{{ FormatDate(run.createdAt) }}</span>
+          <span class="truncate text-xs text-text-dim">{{ FormatDate(run.updatedAt) }}</span>
+          <span class="flex justify-end opacity-60 transition-opacity group-hover:opacity-100">
+            <button
+              type="button"
+              (click)="HandleDeleteClick(run)"
+              [disabled]="deletingRunId() === run.id"
+              title="Delete this run"
+              class="rounded p-1.5 text-text-dim hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M3 6h18" />
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6" />
+              </svg>
+            </button>
+          </span>
+        </div>
+      }
+    </div>
+  </div>
+}
