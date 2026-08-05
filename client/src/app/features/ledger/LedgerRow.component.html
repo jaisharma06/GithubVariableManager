@@ -1,0 +1,65 @@
+<div class="group {{ rowGrid }} border-b border-line last:border-b-0 hover:bg-panel-raised">
+  <span class="h-full min-h-[2.75rem] {{ railClass() }}" aria-hidden="true"></span>
+
+  <span
+    class="px-3 py-2.5 font-mono text-[10px] font-semibold tracking-wide"
+    [class.text-secret]="isSecret()"
+    [class.text-variable]="!isSecret()"
+  >
+    {{ isSecret() ? 'SEC' : 'VAR' }}
+  </span>
+
+  <span class="truncate px-1 py-2.5 font-mono text-sm text-text">{{ item().name }}</span>
+
+  <span class="truncate px-3 py-2.5 font-mono text-sm">
+    @if (isSecret()) {
+      <span
+        title="Secret values are write-only — GitHub encrypts them on save and never returns them to any tool, including this one."
+        class="inline-flex items-center gap-1.5 text-secret"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="3" y="11" width="18" height="10" rx="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+        <span class="tracking-widest">••••••••</span>
+        <span class="font-sans text-xs text-text-dim">write-only, can&rsquo;t be viewed</span>
+      </span>
+    } @else if (masked()) {
+      <span class="tracking-widest text-text-dim">••••••••••••</span>
+    } @else {
+      <span class="text-text">{{ item().value }}</span>
+    }
+  </span>
+
+  <span class="truncate px-3 py-2.5 text-xs text-text-dim">
+    {{ item().kind === 'secret' && item().visibility ? item().visibility : '' }}
+  </span>
+
+  <span
+    class="flex items-center gap-1 px-3 py-2.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+  >
+    <button type="button" (click)="editItem.emit()" title="Edit" class="rounded p-1.5 text-text-dim hover:text-text">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+      </svg>
+    </button>
+    <button
+      type="button"
+      (click)="copyItem.emit()"
+      title="Copy to another environment"
+      class="rounded p-1.5 text-text-dim hover:text-brand"
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="9" y="9" width="12" height="12" rx="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </svg>
+    </button>
+    <button type="button" (click)="deleteItem.emit()" title="Delete" class="rounded p-1.5 text-text-dim hover:text-danger">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M3 6h18" />
+        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6" />
+      </svg>
+    </button>
+  </span>
+</div>

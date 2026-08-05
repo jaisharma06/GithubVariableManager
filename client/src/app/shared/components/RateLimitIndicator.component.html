@@ -1,0 +1,5 @@
+@if (rateLimit(); as info) {
+  <span class="font-mono text-xs" [class.text-danger]="low()" [class.text-text-dim]="!low()" [title]="titleText()">
+    {{ info.remaining }}/{{ info.limit }} API calls left
+  </span>
+}

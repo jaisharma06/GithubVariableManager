@@ -1,0 +1,182 @@
+import { toSignal } from '@angular/core/rxjs-interop';
+import { Component, computed, effect, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { AuthService } from '../../core/services/AuthService';
+import { LastScopeService } from '../../core/services/LastScopeService';
+import { EnvironmentsFacade } from '../../core/facades/EnvironmentsFacade';
+import { ItemMutationsFacade } from '../../core/facades/ItemMutationsFacade';
+import { LedgerFacade } from '../../core/facades/LedgerFacade';
+import { ScopesFacade } from '../../core/facades/ScopesFacade';
+import type { ItemLevel, LedgerItem } from '../../core/Types';
+import type { DashboardScope } from '../../core/Types';
+import { AvatarComponent } from '../../shared/components/Avatar.component';
+import { ConfirmDialogComponent } from '../../shared/components/ConfirmDialog.component';
+import { RateLimitIndicatorComponent } from '../../shared/components/RateLimitIndicator.component';
+import { CompareViewComponent } from '../compare/CompareView.component';
+import { ItemEditorPanelComponent } from '../item-editor/ItemEditorPanel.component';
+import { CopyItemDialogComponent } from '../ledger/CopyItemDialog.component';
+import { LedgerComponent } from '../ledger/Ledger.component';
+import { DEFAULT_FILTERS, type LedgerFilters } from '../ledger/LedgerFilters';
+import { RenameEnvironmentDialogComponent, type EnvironmentRenamedEvent } from './RenameEnvironmentDialog.component';
+import { RunnersPanelComponent } from './RunnersPanel.component';
+import { ScopeSidebarComponent, type ScopeNavigateEvent } from './ScopeSidebar.component';
+
+/** What's being added/edited — mirrors web/src/features/dashboard/Dashboard.tsx's EditorState. */
+type EditorState = { mode: 'create'; level?: ItemLevel; env?: string } | { mode: 'edit'; item: LedgerItem } | null;
+
+/**
+ * Port of web/src/features/dashboard/Dashboard.tsx (OrgDashboard/RepoDashboard/DashboardShell
+ * combined into one routed component reading both possible param shapes). Every feature area is
+ * now real: Ledger (Phase 6), the item editor + copy dialog (Phase 7, shared with CompareView),
+ * and CompareView itself (Phase 8) behind the List/Compare toggle. CompareView owns its own
+ * editor/copy/delete-row dialog state internally (matching the React original) rather than
+ * bubbling those through this shell the way LedgerComponent's rows do.
+ */
+@Component({
+  selector: 'app-dashboard-shell',
+  imports: [
+    ScopeSidebarComponent,
+    RunnersPanelComponent,
+    RenameEnvironmentDialogComponent,
+    AvatarComponent,
+    RateLimitIndicatorComponent,
+    ConfirmDialogComponent,
+    LedgerComponent,
+    ItemEditorPanelComponent,
+    CopyItemDialogComponent,
+    CompareViewComponent,
+  ],
+  templateUrl: './DashboardShell.component.html',
+})
+export class DashboardShellComponent {
+  private readonly route = inject(ActivatedRoute);
+  protected readonly authService = inject(AuthService);
+  private readonly lastScopeService = inject(LastScopeService);
+  private readonly environmentsFacade = inject(EnvironmentsFacade);
+  private readonly scopesFacade = inject(ScopesFacade);
+  private readonly ledgerFacade = inject(LedgerFacade);
+  private readonly itemMutationsFacade = inject(ItemMutationsFacade);
+
+  // Angular reuses this component instance across '/o/:org' <-> '/r/:owner/:repo' navigations
+  // that both resolve here, so scope has to come from the *reactive* paramMap, not a one-off
+  // snapshot read at construction time — otherwise navigating from one scope straight to another
+  // wouldn't update anything.
+  private readonly paramMap = toSignal(this.route.paramMap, { requireSync: true });
+
+  protected readonly scope = computed<DashboardScope>(() => {
+    const params = this.paramMap();
+    return { org: params.get('org') ?? params.get('owner') ?? '', repo: params.get('repo') ?? undefined };
+  });
+  protected readonly breadcrumb = computed<string[]>(() => {
+    const s = this.scope();
+    return s.repo ? [s.org, s.repo] : [s.org];
+  });
+
+  protected readonly environmentsQuery = this.environmentsFacade.EnvironmentsQuery(
+    () => this.scope().org,
+    () => this.scope().repo,
+  );
+  protected readonly isOrgAccountQuery = this.scopesFacade.IsOrgAccountQuery(() =>
+    this.scope().repo ? this.scope().org : null,
+  );
+  protected readonly showOrgLevel = computed(() => !this.scope().repo || this.isOrgAccountQuery.data() === true);
+
+  protected readonly ledgerQuery = this.ledgerFacade.LedgerQuery(this.scope);
+  protected readonly ledgerItems = computed(() => this.ledgerQuery.data()?.items ?? []);
+  protected readonly ledgerPartialErrors = computed(() => this.ledgerQuery.data()?.partialErrors ?? []);
+  protected readonly ledgerLockedSections = computed(() => this.ledgerQuery.data()?.lockedSections ?? []);
+
+  protected readonly filters = signal<LedgerFilters>(DEFAULT_FILTERS);
+  protected readonly envToDelete = signal<string | null>(null);
+  protected readonly envDeleteError = signal<string | null>(null);
+  protected readonly envToRename = signal<string | null>(null);
+  protected readonly viewMode = signal<'list' | 'compare'>('list');
+  protected readonly editorState = signal<EditorState>(null);
+  protected readonly copyTarget = signal<LedgerItem | null>(null);
+  protected readonly deleteTarget = signal<LedgerItem | null>(null);
+  protected readonly deleteError = signal<string | null>(null);
+
+  // environmentsFacade/itemMutationsFacade themselves stay private (DI dependencies aren't part
+  // of this component's template-facing API) — just their pending signals are re-exposed for the
+  // confirm dialogs.
+  protected readonly envDeletePending = this.environmentsFacade.deleteEnvironment.isPending;
+  protected readonly envDeleteTitle = computed(() => `Delete environment "${this.envToDelete()}"?`);
+  protected readonly deleteItemPending = computed(
+    () => this.itemMutationsFacade.deleteVariable.isPending() || this.itemMutationsFacade.deleteSecret.isPending(),
+  );
+  protected readonly deleteItemTitle = computed(() => {
+    const target = this.deleteTarget();
+    return target ? `Delete ${target.kind === 'variable' ? 'variable' : 'secret'} "${target.name}"?` : '';
+  });
+
+  constructor() {
+    effect(() => {
+      const s = this.scope();
+      const label = this.breadcrumb().join(' / ');
+      const path = s.repo ? `/r/${s.org}/${s.repo}` : `/o/${s.org}`;
+      this.lastScopeService.SetLastScope({ path, label });
+    });
+  }
+
+  protected HandleSidebarNavigate(event: ScopeNavigateEvent): void {
+    if (event.level === 'all') {
+      this.filters.set(DEFAULT_FILTERS);
+    } else {
+      this.filters.update((f) => ({ ...f, level: event.level, env: event.env ?? 'all' }));
+    }
+  }
+
+  protected async HandleConfirmDeleteEnv(): Promise<void> {
+    const name = this.envToDelete();
+    const repo = this.scope().repo;
+    if (!name || !repo) return;
+    this.envDeleteError.set(null);
+    try {
+      await this.environmentsFacade.deleteEnvironment.mutateAsync({ org: this.scope().org, repo, name });
+      this.envToDelete.set(null);
+    } catch (err) {
+      this.envDeleteError.set(err instanceof Error ? err.message : 'GitHub rejected this request.');
+    }
+  }
+
+  protected HandleCancelDeleteEnv(): void {
+    this.envToDelete.set(null);
+    this.envDeleteError.set(null);
+  }
+
+  protected HandleEnvironmentRenamed(event: EnvironmentRenamedEvent): void {
+    this.filters.update((f) => (f.env === event.oldName ? { ...f, env: event.newName } : f));
+    this.envToRename.set(null);
+  }
+
+  protected HandleAdd(): void {
+    this.editorState.set({ mode: 'create' });
+  }
+
+  protected HandleAddToSection(event: { level: ItemLevel; env?: string }): void {
+    this.editorState.set({ mode: 'create', level: event.level, env: event.env });
+  }
+
+  protected HandleEditItem(item: LedgerItem): void {
+    this.editorState.set({ mode: 'edit', item });
+  }
+
+  protected async HandleConfirmDeleteItem(): Promise<void> {
+    const target = this.deleteTarget();
+    if (!target) return;
+    this.deleteError.set(null);
+    const params = { scope: target.scope, level: target.level, name: target.name };
+    try {
+      if (target.kind === 'variable') await this.itemMutationsFacade.deleteVariable.mutateAsync(params);
+      else await this.itemMutationsFacade.deleteSecret.mutateAsync(params);
+      this.deleteTarget.set(null);
+    } catch (err) {
+      this.deleteError.set(err instanceof Error ? err.message : 'GitHub rejected this request.');
+    }
+  }
+
+  protected HandleCancelDeleteItem(): void {
+    this.deleteTarget.set(null);
+    this.deleteError.set(null);
+  }
+}

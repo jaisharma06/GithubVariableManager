@@ -97,8 +97,8 @@ export function ConnectScreen() {
               />
               <p className="text-xs text-text-dim">
                 Needs <code className="text-brand">repo</code> and <code className="text-brand">admin:org</code>{' '}
-                scopes to read and write variables/secrets at every level. Held only in this tab&rsquo;s session storage
-                &mdash; never written to disk.
+                scopes to read and write variables/secrets at every level. Held only in your browser&rsquo;s local
+                storage &mdash; never written to disk.
               </p>
               {error ? <p className="text-xs text-danger">{error}</p> : null}
               <Button type="submit" variant="primary" className="w-full" disabled={connecting || !tokenInput.trim()}>

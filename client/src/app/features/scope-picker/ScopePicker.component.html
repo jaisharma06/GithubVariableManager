@@ -1,0 +1,92 @@
+<div class="min-h-screen bg-ink">
+  <header class="flex items-center justify-between border-b border-line px-6 py-4">
+    <div class="flex items-center gap-3">
+      <span
+        class="flex h-8 w-8 items-center justify-center rounded-lg bg-brand font-display text-sm font-bold text-on-brand"
+      >
+        G
+      </span>
+      <h1 class="font-display text-lg font-semibold text-text">Pick a scope</h1>
+    </div>
+    <div class="flex items-center gap-3 text-sm text-text-dim">
+      @if (authService.viewer(); as viewer) {
+        <span>Connected as {{ viewer.login }}</span>
+      }
+      <button (click)="authService.SignOut()" class="text-secret hover:underline">Disconnect</button>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-2xl px-6 py-10">
+    @if (lastScope) {
+      <button (click)="GoToLastScope()" class="mb-4 inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
+        &larr; Back to {{ lastScope.label }}
+      </button>
+    }
+
+    <input
+      #searchInput
+      [value]="query()"
+      (input)="HandleQueryInput($event)"
+      placeholder="Search organizations and repositories&hellip;"
+      class="w-full rounded-md border border-line bg-panel px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
+    />
+
+    @if (loading()) {
+      <div class="mt-6 space-y-2">
+        @for (i of [0, 1, 2]; track i) {
+          <div class="h-11 animate-pulse rounded-md bg-panel"></div>
+        }
+      </div>
+    } @else {
+      <div class="mt-6 space-y-6">
+        <section>
+          <p class="font-display text-xs font-semibold uppercase tracking-wider text-text-dim">Organizations</p>
+          <p class="mb-2 mt-0.5 text-xs text-text-dim">Shows every variable and secret shared org-wide.</p>
+          @if (filteredOrgs().length > 0) {
+            <div class="overflow-hidden rounded-lg border border-line">
+              @for (org of filteredOrgs(); track org.login) {
+                <button
+                  (click)="GoToOrg(org.login)"
+                  class="group flex w-full items-center justify-between border-b border-line bg-panel px-4 py-3 text-left last:border-b-0 hover:bg-panel-raised"
+                >
+                  <span class="truncate font-mono text-sm text-text">{{ org.login }}</span>
+                  <span class="flex shrink-0 items-center gap-3">
+                    <span class="text-text-dim transition-colors group-hover:text-brand">&rarr;</span>
+                  </span>
+                </button>
+              }
+            </div>
+          } @else {
+            <p class="text-sm text-text-dim">No organizations matched.</p>
+          }
+        </section>
+
+        <section>
+          <p class="font-display text-xs font-semibold uppercase tracking-wider text-text-dim">Repositories</p>
+          <p class="mb-2 mt-0.5 text-xs text-text-dim">
+            Shows this repo&rsquo;s own variables/secrets, plus its organization&rsquo;s and every deployment
+            environment&rsquo;s.
+          </p>
+          @if (filteredRepos().length > 0) {
+            <div class="overflow-hidden rounded-lg border border-line">
+              @for (repo of filteredRepos(); track repo.fullName) {
+                <button
+                  (click)="GoToRepo(repo.owner, repo.name)"
+                  class="group flex w-full items-center justify-between border-b border-line bg-panel px-4 py-3 text-left last:border-b-0 hover:bg-panel-raised"
+                >
+                  <span class="truncate font-mono text-sm text-text">{{ repo.fullName }}</span>
+                  <span class="flex shrink-0 items-center gap-3">
+                    <span class="text-xs text-text-dim">{{ repo.private ? 'private' : 'public' }}</span>
+                    <span class="text-text-dim transition-colors group-hover:text-brand">&rarr;</span>
+                  </span>
+                </button>
+              }
+            </div>
+          } @else {
+            <p class="text-sm text-text-dim">No repositories matched.</p>
+          }
+        </section>
+      </div>
+    }
+  </main>
+</div>

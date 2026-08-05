@@ -1,0 +1,34 @@
+<div>
+  <div class="mb-1.5 flex items-center justify-between px-2">
+    <p class="font-mono text-[11px] uppercase tracking-wider text-text-dim">Runners</p>
+    @if (runners().length > 0) {
+      <span class="font-mono text-[10px] text-text-dim">{{ onlineCount() }}/{{ runners().length }} online</span>
+    }
+  </div>
+
+  @if (runnersQuery.isLoading()) {
+    <div class="space-y-1 px-2">
+      @for (i of [0, 1]; track i) {
+        <div class="h-6 animate-pulse rounded-md bg-panel-raised"></div>
+      }
+    </div>
+  } @else if (noAccess()) {
+    <p class="px-2 text-xs text-text-dim">No access to view runners here.</p>
+  } @else if (runnersQuery.error()) {
+    <p class="px-2 text-xs text-danger">{{ errorMessage() }}</p>
+  } @else if (runners().length === 0) {
+    <p class="px-2 text-xs text-text-dim">No self-hosted runners assigned.</p>
+  } @else {
+    <div class="max-h-56 space-y-0.5 overflow-y-auto px-1">
+      @for (runner of runners(); track runner.id) {
+        <div class="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-panel-raised" [title]="RunnerTitle(runner)">
+          <span class="h-1.5 w-1.5 shrink-0 rounded-full" [class]="RunnerDotClass(runner)" aria-hidden="true"></span>
+          <span class="min-w-0 flex-1 truncate text-text">{{ runner.name }}</span>
+          <span class="shrink-0 font-mono text-[10px] uppercase tracking-wide" [class]="RunnerLabelClass(runner)">
+            {{ RunnerState(runner) }}
+          </span>
+        </div>
+      }
+    </div>
+  }
+</div>

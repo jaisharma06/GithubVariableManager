@@ -1,0 +1,98 @@
+<div
+  class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-[2px]"
+  role="presentation"
+  (click)="closed.emit()"
+>
+  <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events -- stopPropagation() only keeps a click inside the dialog from bubbling to the backdrop's dismiss handler above; the dialog's real controls (inputs/buttons below) are independently keyboard-accessible. -->
+  <form
+    (submit)="HandleSubmit($event)"
+    (click)="$event.stopPropagation()"
+    class="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-2xl shadow-black/10"
+  >
+    <div class="border-b border-line px-5 py-4">
+      <p class="font-mono text-xs uppercase tracking-widest text-brand">Copy</p>
+      <h2 class="mt-1 font-display text-lg font-semibold text-text">{{ item().name }}</h2>
+    </div>
+
+    <div class="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-text-dim">
+          {{ isSecret() ? 'Value to push (write-only — can’t be read back from GitHub)' : 'Value' }}
+        </span>
+        <textarea
+          #valueInput
+          rows="3"
+          [value]="value()"
+          (input)="HandleValueInput($event)"
+          spellcheck="false"
+          [placeholder]="isSecret() ? 'Enter the value to copy to the scopes below' : ''"
+          class="w-full resize-y rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
+        ></textarea>
+      </label>
+
+      <div>
+        <div class="mb-1.5 flex items-center justify-between">
+          <span class="text-xs font-medium text-text-dim">Copy to</span>
+          @if (candidates().length > 0) {
+            <button type="button" (click)="ToggleAll()" class="text-xs text-brand hover:underline">
+              {{ allSelected() ? 'Clear all' : 'Select all' }}
+            </button>
+          }
+        </div>
+        @if (candidates().length === 0) {
+          <p class="text-xs text-text-dim">No other scopes available to copy into.</p>
+        } @else {
+          <div class="max-h-52 space-y-0 overflow-y-auto rounded-md border border-line">
+            @for (c of candidates(); track c.key) {
+              <label class="flex items-center justify-between gap-2 border-b border-line px-3 py-2 text-sm last:border-b-0">
+                <span class="flex min-w-0 items-center gap-2">
+                  <input type="checkbox" [checked]="selected().has(c.key)" (change)="Toggle(c.key)" />
+                  <span class="truncate text-text">{{ c.label }}</span>
+                </span>
+                @if (!c.existing) {
+                  <span class="shrink-0 text-xs text-text-dim">not set</span>
+                } @else if (isSecret()) {
+                  <span class="shrink-0 text-xs text-text-dim">already set</span>
+                } @else if (AlreadyMatches(c)) {
+                  <span class="shrink-0 text-xs text-ok">already matches</span>
+                } @else {
+                  <span class="shrink-0 text-xs text-danger">will overwrite</span>
+                }
+              </label>
+            }
+          </div>
+        }
+      </div>
+
+      @if (error()) {
+        <p class="text-sm text-danger">{{ error() }}</p>
+      }
+
+      @if (failures(); as fails) {
+        <div class="space-y-1 rounded-md border border-danger/30 bg-danger-dim p-2.5">
+          <p class="text-xs font-medium text-danger">
+            Copied to {{ selected().size - fails.length }} of {{ selected().size }} — these failed:
+          </p>
+          @for (f of fails; track f.label) {
+            <p class="text-xs text-text-dim">
+              <span class="text-danger">{{ f.label }}</span>: {{ f.message }}
+            </p>
+          }
+        </div>
+      }
+    </div>
+
+    <div class="flex justify-end gap-2 border-t border-line px-5 py-4">
+      <app-button type="button" variant="ghost" (click)="closed.emit()">{{ failures() ? 'Close' : 'Cancel' }}</app-button>
+      <app-button type="submit" variant="primary" [disabled]="isPending() || candidates().length === 0">
+        {{
+          isPending()
+            ? 'Copying…'
+            : selected().size > 0
+              ? 'Copy to ' + selected().size + ' ' + (selected().size === 1 ? 'scope' : 'scopes')
+              : 'Copy'
+        }}
+      </app-button>
+    </div>
+  </form>
+</div>

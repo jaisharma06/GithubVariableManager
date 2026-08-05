@@ -1,0 +1,47 @@
+<div class="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+  <div class="flex items-center gap-0.5 rounded-md border border-line bg-ink p-0.5">
+    @for (opt of levelOptions(); track opt.value) {
+      <button
+        type="button"
+        (click)="SetLevel(opt.value)"
+        [attr.aria-pressed]="filters().level === opt.value"
+        [class]="PillClasses(filters().level === opt.value)"
+      >
+        {{ opt.label }}
+      </button>
+    }
+  </div>
+
+  <div class="flex items-center gap-0.5 rounded-md border border-line bg-ink p-0.5">
+    @for (opt of kindOptions; track opt.value) {
+      <button
+        type="button"
+        (click)="SetKind(opt.value)"
+        [attr.aria-pressed]="filters().kind === opt.value"
+        [class]="PillClasses(filters().kind === opt.value)"
+      >
+        {{ opt.label }}
+      </button>
+    }
+  </div>
+
+  @if (showRepoLevels() && environments().length > 0) {
+    <select
+      class="rounded-md border border-line bg-ink px-2.5 py-1.5 font-sans text-xs text-text-dim focus:border-brand focus:text-text focus:outline-none"
+      [value]="filters().env"
+      (change)="HandleEnvChange($event)"
+    >
+      <option value="all">All environments</option>
+      @for (env of environments(); track env.id) {
+        <option [value]="env.name">{{ env.name }}</option>
+      }
+    </select>
+  }
+
+  <input
+    [value]="filters().search"
+    (input)="HandleSearchInput($event)"
+    placeholder="Filter by name&hellip;"
+    class="ml-auto min-w-[10rem] rounded-md border border-line bg-ink px-2.5 py-1.5 font-mono text-xs text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
+  />
+</div>

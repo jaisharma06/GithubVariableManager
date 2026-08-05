@@ -2,13 +2,15 @@
   "name": "github-variables-manager",
   "version": "1.0.0",
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,yellow \"npm run dev -w server\" \"npm run dev -w web\"",
+    "dev": "concurrently -n server,client -c blue,yellow \"npm run dev -w server\" \"npm start -w client\"",
     "dev:server": "npm run dev -w server",
-    "dev:web": "npm run dev -w web"
+    "dev:client": "npm start -w client",
+    "dev:archive:web": "npm run dev -w web"
   },
   "workspaces": [
-    "web",
-    "server"
+    "archive/web",
+    "server",
+    "client"
   ],
   "private": true,
   "devDependencies": {

@@ -1,0 +1,175 @@
+<div class="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-[2px]" role="presentation" (click)="closed.emit()">
+  <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events -- stopPropagation() only keeps a click inside the panel from bubbling to the backdrop's dismiss handler above; the panel's real controls (inputs/buttons below) are independently keyboard-accessible. -->
+  <form
+    (submit)="HandleSubmit($event)"
+    (click)="$event.stopPropagation()"
+    class="flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-line bg-panel shadow-2xl shadow-black/10"
+  >
+    <div class="border-b border-line px-5 py-4">
+      <p class="font-mono text-xs uppercase tracking-widest text-brand">{{ isEdit() ? 'Edit' : 'Add' }}</p>
+      <h2 class="mt-1 font-display text-lg font-semibold text-text">
+        {{ isEdit() ? initial()!.name : lockTarget() ? initialName() : 'New variable or secret' }}
+      </h2>
+    </div>
+
+    <div class="flex-1 space-y-4 px-5 py-4">
+      <div class="block">
+        <span class="mb-1 block text-xs font-medium text-text-dim">Level</span>
+        @if (scope().repo && !isEdit() && !lockTarget()) {
+          <label class="block">
+            <select
+              class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text focus:border-brand focus:outline-none"
+              [value]="level()"
+              (change)="HandleLevelChange($event)"
+            >
+              @if (showOrgLevel()) {
+                <option value="organization">Organization ({{ scope().org }})</option>
+              }
+              <option value="repository">Repository ({{ scope().repo }})</option>
+              @if (environments().length > 0) {
+                <option value="environment">Environment</option>
+              }
+            </select>
+          </label>
+        } @else {
+          <p class="font-mono text-sm text-text-dim">{{ level() }}{{ level() === 'environment' ? ': ' + envName() : '' }}</p>
+        }
+      </div>
+
+      @if (!isEdit() && !lockTarget() && level() === 'environment') {
+        <label class="block">
+          <span class="mb-1 block text-xs font-medium text-text-dim">Environment</span>
+          <select
+            class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text focus:border-brand focus:outline-none"
+            [value]="envName()"
+            (change)="HandleEnvNameChange($event)"
+          >
+            @for (env of environments(); track env.id) {
+              <option [value]="env.name">{{ env.name }}</option>
+            }
+          </select>
+        </label>
+      }
+
+      <div class="block">
+        <span class="mb-1 block text-xs font-medium text-text-dim">Type</span>
+        @if (isEdit() || lockTarget()) {
+          <p class="font-mono text-sm text-text-dim">{{ kind() }}</p>
+        } @else {
+          <div class="flex gap-2">
+            <button type="button" (click)="kind.set('variable')" [class]="KindOptionClasses('variable')">Variable</button>
+            <button type="button" (click)="kind.set('secret')" [class]="KindOptionClasses('secret')">Secret</button>
+          </div>
+        }
+      </div>
+
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-text-dim">Name</span>
+        <input
+          #nameInput
+          [value]="name()"
+          [disabled]="lockTarget()"
+          (input)="HandleNameInput($event)"
+          placeholder="API_URL"
+          spellcheck="false"
+          class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
+          [class.opacity-70]="lockTarget()"
+        />
+        @if (!nameValid()) {
+          <p class="mt-1 text-xs text-danger">Letters, numbers, and underscores only.</p>
+        }
+        @if (isRenaming() && kind() === 'secret') {
+          <p class="mt-1 text-xs text-text-dim">
+            Secrets can&rsquo;t be renamed directly — this creates
+            <span class="font-mono text-secret">{{ name() || '…' }}</span> with the value below, then deletes
+            <span class="font-mono">{{ initial()!.name }}</span>.
+          </p>
+        }
+      </label>
+
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-text-dim">
+          {{ kind() === 'secret' ? 'Value (write-only — GitHub will never show it again)' : 'Value' }}
+        </span>
+        <textarea
+          #valueInput
+          rows="3"
+          [value]="value()"
+          (input)="HandleValueInput($event)"
+          [placeholder]="isEdit() && kind() === 'secret' ? 'Enter a new value to replace the current one' : ''"
+          spellcheck="false"
+          class="w-full resize-y rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
+        ></textarea>
+      </label>
+
+      @if (!isEdit() && !lockTarget() && replicateCandidates().length > 0) {
+        <div class="block">
+          <span class="mb-1 block text-xs font-medium text-text-dim">Also create in other environments</span>
+          <div class="max-h-40 space-y-0 overflow-y-auto rounded-md border border-line">
+            @for (c of replicateCandidates(); track c.key) {
+              <label class="flex items-center gap-2 border-b border-line px-3 py-1.5 text-sm last:border-b-0">
+                <input type="checkbox" [checked]="replicateEnvs().has(c.key)" (change)="ToggleReplicateEnv(c.key)" />
+                <span class="font-mono text-xs text-text">{{ c.label }}</span>
+                @if (c.existing) {
+                  <span class="ml-auto text-xs text-danger">will overwrite</span>
+                }
+              </label>
+            }
+          </div>
+          <p class="mt-1 text-xs text-text-dim">Creates this {{ kind() }} with the same value in every environment checked above.</p>
+        </div>
+      }
+
+      @if (needsVisibilityPicker()) {
+        <label class="block">
+          <span class="mb-1 block text-xs font-medium text-text-dim">Which repos can use this?</span>
+          <select
+            class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text focus:border-brand focus:outline-none"
+            [value]="visibility()"
+            (change)="HandleVisibilityChange($event)"
+          >
+            <option value="all">All repositories</option>
+            <option value="private">Private repositories</option>
+            <option value="selected">Selected repositories</option>
+          </select>
+          @if (visibility() === 'selected') {
+            <div class="mt-2 max-h-40 overflow-y-auto rounded-md border border-line">
+              @if (orgReposQuery.isLoading()) {
+                <p class="p-3 text-xs text-text-dim">Loading repositories&hellip;</p>
+              } @else {
+                @for (repo of orgReposQuery.data() ?? []; track repo.id) {
+                  <label class="flex items-center gap-2 border-b border-line px-3 py-1.5 text-sm text-text last:border-b-0">
+                    <input type="checkbox" [checked]="selectedRepoIds().has(repo.id)" (change)="ToggleRepo(repo.id)" />
+                    <span class="font-mono text-xs">{{ repo.name }}</span>
+                  </label>
+                }
+              }
+            </div>
+          }
+        </label>
+      }
+
+      @if (error()) {
+        <p class="text-sm text-danger">{{ error() }}</p>
+      }
+
+      @if (replicateFailures(); as failures) {
+        <div class="space-y-1 rounded-md border border-danger/30 bg-danger-dim p-2.5">
+          <p class="text-xs font-medium text-danger">Saved here, but copying to some environments failed:</p>
+          @for (f of failures; track f.label) {
+            <p class="text-xs text-text-dim">
+              <span class="text-danger">{{ f.label }}</span>: {{ f.message }}
+            </p>
+          }
+        </div>
+      }
+    </div>
+
+    <div class="flex justify-end gap-2 border-t border-line px-5 py-4">
+      <app-button type="button" variant="ghost" (click)="closed.emit()">{{ replicateFailures() ? 'Close' : 'Cancel' }}</app-button>
+      <app-button type="submit" variant="primary" [disabled]="submitting()">
+        {{ submitting() ? 'Saving…' : isEdit() ? 'Save changes' : 'Create' }}
+      </app-button>
+    </div>
+  </form>
+</div>

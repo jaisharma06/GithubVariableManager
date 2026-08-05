@@ -1,0 +1,134 @@
+<div class="flex flex-1 flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-sm shadow-black/[0.03]">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <app-filter-bar
+      [filters]="filters()"
+      [environments]="environments()"
+      [showRepoLevels]="showRepoLevels()"
+      [showOrgLevel]="showOrgLevel()"
+      (filtersChange)="filtersChange.emit($event)"
+    />
+    <div class="mr-4 flex shrink-0 items-center gap-2">
+      <button
+        type="button"
+        (click)="ToggleHideValues()"
+        [attr.aria-pressed]="hideValues()"
+        [title]="hideValues() ? 'Show variable values' : 'Hide variable values (e.g. before screen-sharing)'"
+        class="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-sans text-xs font-medium transition-colors"
+        [class.border-brand]="hideValues()"
+        [class.bg-brand-dim]="hideValues()"
+        [class.text-brand]="hideValues()"
+        [class.border-line]="!hideValues()"
+        [class.text-text-dim]="!hideValues()"
+      >
+        @if (hideValues()) {
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path
+              d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a20.6 20.6 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a20.6 20.6 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"
+            />
+            <path d="M1 1l22 22" />
+          </svg>
+        } @else {
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        }
+        {{ hideValues() ? 'Values hidden' : 'Hide values' }}
+      </button>
+      <app-button variant="primary" size="sm" (click)="add.emit()">+ Add</app-button>
+    </div>
+  </div>
+
+  @if (partialErrors().length > 0) {
+    <div class="border-b border-line bg-danger-dim px-4 py-2">
+      <p class="font-sans text-xs font-medium text-danger">
+        Couldn&rsquo;t load {{ partialErrors().length === 1 ? 'one part' : partialErrors().length + ' parts' }} of this
+        scope
+      </p>
+      <ul class="mt-1 space-y-0.5">
+        @for (e of partialErrors(); track e.label) {
+          <li class="text-xs text-text-dim">
+            <span class="text-danger">{{ e.label }}</span>: {{ e.message }}
+          </li>
+        }
+      </ul>
+    </div>
+  }
+
+  <div class="flex-1 overflow-x-auto overflow-y-auto">
+    @if (isLoading()) {
+      <div class="space-y-2 p-4">
+        @for (i of [0, 1, 2, 3]; track i) {
+          <div class="h-9 animate-pulse rounded-md bg-panel-raised"></div>
+        }
+      </div>
+    } @else if (error()) {
+      <div class="p-6 text-center">
+        <p class="font-display text-sm font-semibold text-danger">Couldn&rsquo;t load this scope</p>
+        <p class="mt-2 text-sm text-text-dim">{{ error()!.message }}</p>
+      </div>
+    } @else if (groups().length === 0) {
+      <div class="p-6 text-center">
+        <p class="text-sm text-text-dim">
+          {{
+            items().length === 0
+              ? 'No variables or secrets set here yet — add one to get started.'
+              : 'Nothing matches these filters — clear them to see everything in scope.'
+          }}
+        </p>
+      </div>
+    } @else {
+      <div class="min-w-[46rem]">
+        <div
+          class="{{ rowGrid }} border-b border-line px-0 py-1.5 font-sans text-[11px] font-medium uppercase tracking-wider text-text-dim"
+        >
+          <span></span>
+          <span class="px-3">Type</span>
+          <span class="px-1">Name</span>
+          <span class="px-3">Value</span>
+          <span class="px-3">Access</span>
+          <span class="px-3"></span>
+        </div>
+
+        <div class="space-y-5 p-4">
+          @for (group of groups(); track group.key) {
+            <div [class]="LevelIndent(group.level)">
+              <app-section-header
+                [level]="group.level"
+                [scopeLabel]="group.scopeLabel"
+                [description]="group.description"
+                (add)="addToSection.emit({ level: group.level, env: group.env })"
+              />
+              <div class="mt-1.5 overflow-hidden rounded-lg border border-line">
+                @for (item of group.items; track item.id) {
+                  <app-ledger-row
+                    [item]="item"
+                    [hideValues]="hideValues()"
+                    (editItem)="editItem.emit(item)"
+                    (copyItem)="copyItem.emit(item)"
+                    (deleteItem)="deleteItem.emit(item)"
+                  />
+                }
+                @for (kind of group.lockedKinds; track kind) {
+                  <div class="{{ rowGrid }} border-b border-line last:border-b-0">
+                    <span class="h-full min-h-[2.75rem] bg-line" aria-hidden="true"></span>
+                    <span class="px-3 py-2.5 font-mono text-[10px] font-semibold tracking-wide text-text-dim">
+                      {{ kind === 'secret' ? 'SEC' : 'VAR' }}
+                    </span>
+                    <span class="col-span-3 flex items-center gap-1.5 px-1 py-2.5 text-sm text-text-dim">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <rect x="3" y="11" width="18" height="10" rx="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                      No access to view {{ kind === 'secret' ? 'secrets' : 'variables' }} at this level.
+                    </span>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+</div>

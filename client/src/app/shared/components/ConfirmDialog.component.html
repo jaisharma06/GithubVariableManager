@@ -1,0 +1,28 @@
+<div
+  class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-[2px]"
+  role="presentation"
+  (click)="cancelled.emit()"
+>
+  <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events -- this stopPropagation() only keeps a click inside the dialog from bubbling to the backdrop's dismiss handler above; it isn't itself a user action, and the dialog's real interactive controls (the buttons below) are independently keyboard-accessible. -->
+  <div
+    role="alertdialog"
+    aria-modal="true"
+    aria-labelledby="confirm-title"
+    class="w-full max-w-sm rounded-xl border border-line bg-ink p-5 shadow-2xl shadow-black/10"
+    (click)="$event.stopPropagation()"
+  >
+    <h2 id="confirm-title" class="font-sans text-base font-semibold text-text">{{ title() }}</h2>
+    <div class="mt-2 text-sm text-text-dim">
+      <ng-content />
+    </div>
+    @if (error()) {
+      <p class="mt-3 text-sm text-danger">{{ error() }}</p>
+    }
+    <div class="mt-5 flex justify-end gap-2">
+      <app-button variant="ghost" [disabled]="confirming()" (click)="cancelled.emit()">Cancel</app-button>
+      <app-button #confirmButton variant="danger" [disabled]="confirming()" (click)="confirmed.emit()">
+        {{ confirming() ? 'Deleting…' : confirmLabel() }}
+      </app-button>
+    </div>
+  </div>
+</div>

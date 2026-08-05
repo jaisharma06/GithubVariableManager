@@ -1,0 +1,19 @@
+<span
+  class="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand font-display text-xs font-bold text-on-brand"
+  [style.width.px]="size()"
+  [style.height.px]="size()"
+>
+  @if (!(showImage() && loaded())) {
+    <span [attr.aria-hidden]="showImage()">{{ initial() }}</span>
+  }
+  @if (showImage()) {
+    <img
+      [src]="avatarUrl()"
+      [alt]="altText()"
+      (load)="loaded.set(true)"
+      (error)="errored.set(true)"
+      class="absolute inset-0 h-full w-full object-cover"
+      [class.hidden]="!loaded()"
+    />
+  }
+</span>

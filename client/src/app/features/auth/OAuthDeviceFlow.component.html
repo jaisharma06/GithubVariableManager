@@ -1,0 +1,39 @@
+@switch (state().phase) {
+  @case ('idle') {
+    <app-button variant="primary" extraClass="w-full" (click)="Start()">Continue with GitHub</app-button>
+  }
+  @case ('starting') {
+    <div class="h-9 animate-pulse rounded-md bg-panel-raised"></div>
+  }
+  @case ('error') {
+    <div class="space-y-3">
+      <p class="text-sm text-danger">{{ errorMessage() }}</p>
+      <app-button variant="primary" extraClass="w-full" (click)="Start()">Try again</app-button>
+    </div>
+  }
+  @case ('waiting') {
+    @if (waitingDevice(); as device) {
+      <div class="space-y-3 text-center">
+        <p class="text-xs text-text-dim">Enter this code at GitHub to finish signing in:</p>
+        <p class="select-all rounded-md border border-line bg-ink py-3 font-mono text-2xl tracking-[0.3em] text-brand">
+          {{ device.userCode }}
+        </p>
+        @if (waitingCopied()) {
+          <p class="text-xs text-text-dim">Copied to your clipboard.</p>
+        }
+        <a
+          [href]="device.verificationUri"
+          target="_blank"
+          rel="noreferrer"
+          class="inline-flex w-full items-center justify-center rounded-md border border-line bg-panel-raised px-4 py-2 text-sm font-medium text-text hover:border-text-dim"
+        >
+          Open {{ device.verificationUri.replace('https://', '') }} &rarr;
+        </a>
+        <p class="font-mono text-xs text-text-dim">
+          <span class="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand align-middle"></span>
+          Waiting for approval&hellip;
+        </p>
+      </div>
+    }
+  }
+}

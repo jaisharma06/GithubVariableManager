@@ -1,0 +1,79 @@
+<div class="relative flex min-h-screen items-center justify-center overflow-hidden bg-ink px-4">
+  <div class="pointer-events-none absolute inset-0" aria-hidden="true">
+    <div
+      class="absolute left-1/2 top-0 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/3 rounded-full bg-brand/10 blur-3xl"
+    ></div>
+    <div
+      class="absolute inset-0"
+      style="background-image: radial-gradient(var(--color-line) 1px, transparent 1px); background-size: 26px 26px; mask-image: radial-gradient(ellipse 60% 55% at 50% 35%, black 35%, transparent 100%); -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 35%, black 35%, transparent 100%);"
+    ></div>
+  </div>
+
+  <div class="relative w-full max-w-md">
+    <div class="mb-7 text-center">
+      <span
+        class="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-brand font-display text-base font-bold text-on-brand"
+      >
+        G
+      </span>
+      <h1 class="font-display text-3xl font-semibold tracking-tight text-text">Variables Manager</h1>
+      <p class="mx-auto mt-2 max-w-sm text-sm text-text-dim">
+        One login, every GitHub Actions variable and secret — organization, repository, and environment — in a
+        single view.
+      </p>
+    </div>
+
+    <div class="rounded-xl border border-line bg-panel shadow-xl shadow-black/[0.04]">
+      <div class="flex border-b border-line">
+        <button type="button" [class]="TabButtonClasses(tab() === 'pat')" (click)="tab.set('pat')">
+          Personal access token
+        </button>
+        <button type="button" [class]="TabButtonClasses(tab() === 'oauth')" (click)="tab.set('oauth')">
+          GitHub OAuth
+        </button>
+      </div>
+
+      @if (tab() === 'pat') {
+        <form (submit)="HandlePatSubmit($event)" class="space-y-3 p-5">
+          <label for="token-field" class="block text-xs font-medium text-text-dim">Fine-grained or classic token</label>
+          <input
+            id="token-field"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            [value]="tokenInput()"
+            (input)="HandleTokenInput($event)"
+            placeholder="ghp_..."
+            class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
+          />
+          <p class="text-xs text-text-dim">
+            Needs <code class="text-brand">repo</code> and <code class="text-brand">admin:org</code> scopes to read
+            and write variables/secrets at every level. Held only in your browser&rsquo;s local storage &mdash; never
+            written to disk.
+          </p>
+          @if (error()) {
+            <p class="text-xs text-danger">{{ error() }}</p>
+          }
+          <app-button type="submit" variant="primary" extraClass="w-full" [disabled]="connecting() || !tokenInput().trim()">
+            {{ connecting() ? 'Connecting…' : 'Connect' }}
+          </app-button>
+        </form>
+      } @else {
+        <div class="space-y-3 p-5">
+          @if (oauthClientId() === 'loading') {
+            <div class="h-9 animate-pulse rounded-md bg-panel-raised"></div>
+          } @else if (oauthClientId()) {
+            <p class="text-xs text-text-dim">Sign in with your GitHub account &mdash; no token to copy, no secret involved.</p>
+            <app-oauth-device-flow (success)="HandleOAuthSuccess($event)" />
+          } @else {
+            <p class="rounded-md border border-line bg-ink p-3 text-xs text-text-dim">
+              OAuth isn&rsquo;t configured on this server yet. Set
+              <code class="text-secret">GITHUB_OAUTH_CLIENT_ID</code> in <code>server/.env</code> (from an OAuth App
+              with Device Flow enabled), or use a personal access token instead.
+            </p>
+          }
+        </div>
+      }
+    </div>
+  </div>
+</div>

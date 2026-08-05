@@ -1,0 +1,83 @@
+<div
+  class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-[2px]"
+  role="presentation"
+  (click)="closed.emit()"
+>
+  <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events -- this stopPropagation() only keeps a click inside the dialog from bubbling to the backdrop's dismiss handler above; Escape (handled document-wide by this component) is the real keyboard equivalent. -->
+  <form
+    (submit)="HandleSubmit($event)"
+    (click)="$event.stopPropagation()"
+    class="flex max-h-[85vh] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-2xl shadow-black/10"
+  >
+    <div class="border-b border-line px-5 py-4">
+      <p class="font-mono text-xs uppercase tracking-widest text-brand">Rename</p>
+      <h2 class="mt-1 font-display text-lg font-semibold text-text">{{ oldName() }}</h2>
+    </div>
+
+    <div class="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      <p class="text-xs text-text-dim">
+        GitHub has no rename API for environments — this creates
+        <span class="font-mono text-text">{{ trimmed() || '…' }}</span>, copies over
+        {{ variables().length === 0 ? 'nothing' : variables().length + ' variable' + (variables().length === 1 ? '' : 's') }}, then
+        removes <span class="font-mono text-text">{{ oldName() }}</span>.
+      </p>
+
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-text-dim">New name</span>
+        <input
+          #newNameInput
+          [value]="newName()"
+          (input)="HandleNewNameInput($event)"
+          spellcheck="false"
+          class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
+        />
+        @if (!nameValid()) {
+          <p class="mt-1 text-xs text-danger">Letters, numbers, underscores, dots, and hyphens only.</p>
+        }
+      </label>
+
+      @if (secrets().length > 0) {
+        <div class="space-y-2 rounded-md border border-danger/30 bg-danger-dim p-3">
+          <p class="text-xs font-medium text-danger">
+            {{ secrets().length }} secret{{ secrets().length === 1 ? '' : 's' }} can&rsquo;t be carried over
+          </p>
+          <p class="text-xs text-text-dim">
+            GitHub never returns a secret&rsquo;s stored value, so it can&rsquo;t be read and copied. Re-add
+            {{ secretNames() }} under the new name after renaming.
+          </p>
+          <label class="flex items-start gap-2 text-xs text-text">
+            <input type="checkbox" class="mt-0.5" [checked]="deleteOldAnyway()" (change)="HandleDeleteOldAnywayChange($event)" />
+            <span>
+              Delete <span class="font-mono">{{ oldName() }}</span> now anyway — I understand its secrets will be lost.
+            </span>
+          </label>
+          @if (!deleteOldAnyway()) {
+            <p class="text-xs text-text-dim">
+              Otherwise <span class="font-mono">{{ oldName() }}</span> is left in place so you can finish moving secrets over, then
+              delete it yourself.
+            </p>
+          }
+        </div>
+      }
+
+      @if (error()) {
+        <p class="text-sm text-danger">{{ error() }}</p>
+      }
+    </div>
+
+    <div class="flex justify-end gap-2 border-t border-line px-5 py-4">
+      <app-button type="button" variant="ghost" [disabled]="submitting()" (click)="closed.emit()">Cancel</app-button>
+      <app-button type="submit" variant="primary" [disabled]="submitting() || !trimmed()">
+        {{
+          step() === 'creating'
+            ? 'Creating…'
+            : step() === 'copying'
+              ? 'Copying variables…'
+              : step() === 'deleting'
+                ? 'Cleaning up…'
+                : 'Rename'
+        }}
+      </app-button>
+    </div>
+  </form>
+</div>
