@@ -2,13 +2,22 @@ import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey 
 import { GitHubApiError } from './client'
 import { createEnvironment, deleteEnvironment, listEnvironments } from './environments'
 import { itemId } from './paths'
+import { listOrgRunners, listRepoRunners } from './runners'
 import { getAccountType, listMyOrgs, listMyRepos, listOrgRepos } from './scopes'
 import { createVariable, deleteVariable, listVariables, updateVariable } from './variables'
 import { deleteSecret, listSecrets, putSecret, type PutSecretOptions } from './secrets'
 import type { GithubEnvironment, ItemKind, ItemLevel, LedgerItem, ScopeRef } from './types'
 
-function sameScope(a: ScopeRef, b: ScopeRef): boolean {
+export function sameScope(a: ScopeRef, b: ScopeRef): boolean {
   return a.org === b.org && a.repo === b.repo && a.env === b.env
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof GitHubApiError
+    ? `${err.message} (HTTP ${err.status})`
+    : err instanceof Error
+      ? err.message
+      : 'Unknown error'
 }
 
 /** Snapshots every active ledger query so a failed optimistic update can roll back cleanly. */
@@ -146,6 +155,20 @@ export function useEnvironments(token: string | null, scope: DashboardScope | nu
     queryKey: ['environments', token, scope?.org, scope?.repo],
     queryFn: () => listEnvironments(token!, scope!.org, scope!.repo!),
     enabled: !!token && !!scope?.repo,
+  })
+}
+
+/**
+ * Self-hosted runners in scope: repo runners for a repo scope, org runners for an org-only scope.
+ * Polled every 30s since online/offline/busy status is live state, not something a manual
+ * mutation here ever changes — a one-off fetch would go stale the moment a runner picks up a job.
+ */
+export function useRunners(token: string | null, scope: DashboardScope | null) {
+  return useQuery({
+    queryKey: ['runners', token, scope?.org, scope?.repo],
+    queryFn: () => (scope!.repo ? listRepoRunners(token!, scope!.org, scope!.repo) : listOrgRunners(token!, scope!.org)),
+    enabled: !!token && !!scope,
+    refetchInterval: 30_000,
   })
 }
 
@@ -439,4 +462,92 @@ export function useDeleteEnvironment(token: string | null) {
     },
     onError: (_err, _p, context) => context && qc.setQueryData(context.key, context.previous),
   })
+}
+
+export interface CopyTarget {
+  level: ItemLevel
+  scope: ScopeRef
+  /** Whether this destination already has an item of the same name — decides create vs. update. */
+  exists: boolean
+}
+
+export interface CopyResult {
+  target: CopyTarget
+  ok: boolean
+  message?: string
+}
+
+/**
+ * Pushes one variable/secret's value out to a batch of other scopes, reusing the same
+ * create/update/put mutations (and their optimistic-update behavior) each destination already
+ * goes through individually. Every target is attempted independently so one failure doesn't
+ * hide whether the rest succeeded.
+ */
+export function useCopyItem(token: string | null) {
+  const createVariable = useCreateVariable(token)
+  const updateVariable = useUpdateVariable(token)
+  const putSecret = usePutSecret(token)
+
+  async function copyTo(
+    kind: ItemKind,
+    name: string,
+    value: string,
+    targets: CopyTarget[],
+    options?: PutSecretOptions,
+  ): Promise<CopyResult[]> {
+    const settled = await Promise.allSettled(
+      targets.map((t) =>
+        kind === 'variable'
+          ? t.exists
+            ? updateVariable.mutateAsync({ scope: t.scope, level: t.level, currentName: name, newName: name, value })
+            : createVariable.mutateAsync({ scope: t.scope, level: t.level, name, value })
+          : putSecret.mutateAsync({ scope: t.scope, level: t.level, name, value, options }),
+      ),
+    )
+    return settled.map((result, i) => ({
+      target: targets[i],
+      ok: result.status === 'fulfilled',
+      message: result.status === 'rejected' ? errorMessage(result.reason) : undefined,
+    }))
+  }
+
+  return { copyTo, isPending: createVariable.isPending || updateVariable.isPending || putSecret.isPending }
+}
+
+export interface DeleteEverywhereTarget {
+  level: ItemLevel
+  scope: ScopeRef
+}
+
+export interface DeleteEverywhereResult {
+  target: DeleteEverywhereTarget
+  ok: boolean
+  message?: string
+}
+
+/** Deletes one variable/secret, by name, from every scope it's currently set in. */
+export function useDeleteEverywhere(token: string | null) {
+  const deleteVariable = useDeleteVariable(token)
+  const deleteSecret = useDeleteSecret(token)
+
+  async function deleteFrom(
+    kind: ItemKind,
+    name: string,
+    targets: DeleteEverywhereTarget[],
+  ): Promise<DeleteEverywhereResult[]> {
+    const settled = await Promise.allSettled(
+      targets.map((t) =>
+        kind === 'variable'
+          ? deleteVariable.mutateAsync({ scope: t.scope, level: t.level, name })
+          : deleteSecret.mutateAsync({ scope: t.scope, level: t.level, name }),
+      ),
+    )
+    return settled.map((result, i) => ({
+      target: targets[i],
+      ok: result.status === 'fulfilled',
+      message: result.status === 'rejected' ? errorMessage(result.reason) : undefined,
+    }))
+  }
+
+  return { deleteFrom, isPending: deleteVariable.isPending || deleteSecret.isPending }
 }

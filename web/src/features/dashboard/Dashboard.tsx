@@ -13,8 +13,13 @@ import {
 } from '../../api/hooks'
 import { Ledger } from '../ledger/Ledger'
 import { defaultFilters, type LedgerFilters } from '../ledger/FilterBar'
+import { CopyItemDialog } from '../ledger/CopyItemDialog'
+import { CompareView } from '../compare/CompareView'
 import { ScopeSidebar } from './ScopeSidebar'
+import { RunnersPanel } from './RunnersPanel'
+import { RenameEnvironmentDialog } from './RenameEnvironmentDialog'
 import { RateLimitIndicator } from '../../components/RateLimitIndicator'
+import { Avatar } from '../../components/Avatar'
 import { ItemEditorPanel } from '../item-editor/ItemEditorPanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { setLastScope } from '../../lib/lastScope'
@@ -54,10 +59,14 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
 
   const [filters, setFilters] = useState<LedgerFilters>(defaultFilters)
   const [editorState, setEditorState] = useState<EditorState>(null)
+  const [copyTarget, setCopyTarget] = useState<LedgerItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<LedgerItem | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [envToDelete, setEnvToDelete] = useState<string | null>(null)
   const [envDeleteError, setEnvDeleteError] = useState<string | null>(null)
+  const [envToRename, setEnvToRename] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'list' | 'compare'>('list')
+  const ledgerItems = ledgerQuery.data?.items ?? []
 
   function handleSidebarNavigate(level: LedgerFilters['level'], env?: string) {
     if (level === 'all') {
@@ -106,9 +115,14 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
     setEnvDeleteError(null)
   }
 
+  function handleEnvironmentRenamed(oldName: string, newName: string) {
+    setFilters((f) => (f.env === oldName ? { ...f, env: newName } : f))
+    setEnvToRename(null)
+  }
+
   return (
     <div className="flex min-h-screen bg-ink">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-panel">
+      <aside className="fixed inset-y-0 left-0 flex h-screen w-64 shrink-0 flex-col overflow-hidden border-r border-line bg-panel">
         <div className="flex items-center gap-2 border-b border-line px-4 py-4">
           <span className="flex h-6 w-6 items-center justify-center rounded bg-brand font-display text-xs font-bold text-on-brand">
             G
@@ -116,7 +130,7 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
           <span className="truncate font-display text-sm font-semibold text-text">Variables Manager</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2 py-4">
+        <div className="flex-1 overflow-hidden px-2 py-4">
           <ScopeSidebar
             org={scope.org}
             repo={scope.repo}
@@ -125,13 +139,23 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
             filters={filters}
             onNavigate={handleSidebarNavigate}
             onCreateEnvironment={handleCreateEnvironment}
+            onRenameEnvironment={setEnvToRename}
             onDeleteEnvironment={setEnvToDelete}
           />
         </div>
 
+        <div className="border-t border-line px-2 py-3">
+          <RunnersPanel scope={scope} />
+        </div>
+
         <div className="border-t border-line px-4 py-3">
           <div className="flex items-center justify-between gap-2">
-            {viewer ? <span className="truncate text-xs text-text-dim">{viewer.login}</span> : null}
+            {viewer ? (
+              <span className="flex min-w-0 items-center gap-2">
+                <Avatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={20} />
+                <span className="truncate text-xs text-text-dim">{viewer.login}</span>
+              </span>
+            ) : null}
             <button onClick={disconnect} className="shrink-0 text-xs text-secret hover:underline">
               Disconnect
             </button>
@@ -139,29 +163,67 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="ml-64 flex flex-1 flex-col overflow-hidden">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4">
           <h1 className="font-display text-lg font-semibold text-text">{breadcrumb.join(' / ')}</h1>
-          <RateLimitIndicator />
+          <div className="flex items-center gap-3">
+            {scope.repo ? (
+              <div className="flex items-center gap-0.5 rounded-md border border-line bg-ink p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                  aria-pressed={viewMode === 'list'}
+                  className={`rounded px-2.5 py-1 font-sans text-xs font-medium transition-colors ${
+                    viewMode === 'list' ? 'bg-brand-dim text-brand' : 'text-text-dim hover:text-text'
+                  }`}
+                >
+                  List
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('compare')}
+                  aria-pressed={viewMode === 'compare'}
+                  className={`rounded px-2.5 py-1 font-sans text-xs font-medium transition-colors ${
+                    viewMode === 'compare' ? 'bg-brand-dim text-brand' : 'text-text-dim hover:text-text'
+                  }`}
+                >
+                  Compare
+                </button>
+              </div>
+            ) : null}
+            <RateLimitIndicator />
+          </div>
         </header>
 
         <main className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
-          <Ledger
-            items={ledgerQuery.data?.items ?? []}
-            isLoading={ledgerQuery.isLoading}
-            error={ledgerQuery.error as Error | null}
-            partialErrors={ledgerQuery.data?.partialErrors}
-            lockedSections={ledgerQuery.data?.lockedSections}
-            environments={environmentsQuery.data ?? []}
-            showRepoLevels={!!scope.repo}
-            showOrgLevel={showOrgLevel}
-            filters={filters}
-            onFiltersChange={setFilters}
-            onAdd={() => setEditorState({ mode: 'create' })}
-            onAddToSection={(level, env) => setEditorState({ mode: 'create', level, env })}
-            onEdit={(item) => setEditorState({ mode: 'edit', item })}
-            onDelete={(item) => setDeleteTarget(item)}
-          />
+          {viewMode === 'compare' && scope.repo ? (
+            <CompareView
+              scope={scope}
+              environments={environmentsQuery.data ?? []}
+              items={ledgerItems}
+              showOrgLevel={showOrgLevel}
+              isLoading={ledgerQuery.isLoading}
+              error={ledgerQuery.error as Error | null}
+            />
+          ) : (
+            <Ledger
+              items={ledgerItems}
+              isLoading={ledgerQuery.isLoading}
+              error={ledgerQuery.error as Error | null}
+              partialErrors={ledgerQuery.data?.partialErrors}
+              lockedSections={ledgerQuery.data?.lockedSections}
+              environments={environmentsQuery.data ?? []}
+              showRepoLevels={!!scope.repo}
+              showOrgLevel={showOrgLevel}
+              filters={filters}
+              onFiltersChange={setFilters}
+              onAdd={() => setEditorState({ mode: 'create' })}
+              onAddToSection={(level, env) => setEditorState({ mode: 'create', level, env })}
+              onEdit={(item) => setEditorState({ mode: 'edit', item })}
+              onCopy={(item) => setCopyTarget(item)}
+              onDelete={(item) => setDeleteTarget(item)}
+            />
+          )}
         </main>
       </div>
 
@@ -169,11 +231,23 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
         <ItemEditorPanel
           scope={scope}
           environments={environmentsQuery.data ?? []}
+          items={ledgerItems}
           initial={editorState.mode === 'edit' ? editorState.item : null}
           initialLevel={editorState.mode === 'create' ? editorState.level : undefined}
           initialEnv={editorState.mode === 'create' ? editorState.env : undefined}
           showOrgLevel={showOrgLevel}
           onClose={() => setEditorState(null)}
+        />
+      ) : null}
+
+      {copyTarget ? (
+        <CopyItemDialog
+          item={copyTarget}
+          scope={scope}
+          environments={environmentsQuery.data ?? []}
+          showOrgLevel={showOrgLevel}
+          items={ledgerItems}
+          onClose={() => setCopyTarget(null)}
         />
       ) : null}
 
@@ -186,6 +260,18 @@ function DashboardShell({ scope, breadcrumb }: { scope: DashboardScope; breadcru
           confirming={deleteVariable.isPending || deleteSecret.isPending}
           onConfirm={handleConfirmDelete}
           onCancel={handleCancelDelete}
+        />
+      ) : null}
+
+      {envToRename && scope.repo ? (
+        <RenameEnvironmentDialog
+          org={scope.org}
+          repo={scope.repo}
+          oldName={envToRename}
+          environments={environmentsQuery.data ?? []}
+          items={ledgerItems}
+          onClose={() => setEnvToRename(null)}
+          onRenamed={handleEnvironmentRenamed}
         />
       ) : null}
 

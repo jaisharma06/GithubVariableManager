@@ -1,6 +1,6 @@
 import type { ItemKind, LedgerItem } from '../../api/types'
 
-export const ROW_GRID = 'grid grid-cols-[3px_3rem_1fr_1fr_5rem_4.5rem] items-center'
+export const ROW_GRID = 'grid grid-cols-[3px_3rem_1fr_1fr_5rem_6.5rem] items-center'
 
 /** Rendered instead of a real row when the current token has no rights to see this level/kind. */
 export function LockedRow({ kind }: { kind: ItemKind }) {
@@ -22,10 +22,11 @@ interface LedgerRowProps {
   item: LedgerItem
   hideValues: boolean
   onEdit: () => void
+  onCopy: () => void
   onDelete: () => void
 }
 
-export function LedgerRow({ item, hideValues, onEdit, onDelete }: LedgerRowProps) {
+export function LedgerRow({ item, hideValues, onEdit, onCopy, onDelete }: LedgerRowProps) {
   const isSecret = item.kind === 'secret'
   const masked = isSecret || hideValues
   const railColor = isSecret ? 'bg-secret' : 'bg-variable'
@@ -71,6 +72,14 @@ export function LedgerRow({ item, hideValues, onEdit, onDelete }: LedgerRowProps
         </button>
         <button
           type="button"
+          onClick={onCopy}
+          title="Copy to another environment"
+          className="rounded p-1.5 text-text-dim hover:text-brand"
+        >
+          <CopyIcon />
+        </button>
+        <button
+          type="button"
           onClick={onDelete}
           title="Delete"
           className="rounded p-1.5 text-text-dim hover:text-danger"
@@ -96,6 +105,15 @@ function EditIcon() {
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+    </svg>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </svg>
   )
 }

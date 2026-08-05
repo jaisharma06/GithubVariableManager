@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { getViewer } from '../api/scopes'
+import { onUnauthorized } from '../lib/authEvents'
 import type { Viewer } from '../api/types'
 
 type AuthMethod = 'pat' | 'oauth'
@@ -18,12 +19,14 @@ interface AuthContextValue {
   disconnect: () => void
 }
 
+// localStorage (not sessionStorage) so the session survives closing the tab/browser —
+// the user stays signed in until they disconnect or GitHub rejects the token.
 const STORAGE_KEY = 'ghvm.session'
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 function readStoredSession(): StoredSession | null {
-  const raw = sessionStorage.getItem(STORAGE_KEY)
+  const raw = localStorage.getItem(STORAGE_KEY)
   if (!raw) return null
   try {
     return JSON.parse(raw) as StoredSession
@@ -38,13 +41,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const connectWithToken = useCallback(async (token: string, method: AuthMethod = 'pat') => {
     const viewer = await getViewer(token)
     const next: StoredSession = { token, method, viewer }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
     setSession(next)
   }, [])
 
   const disconnect = useCallback(() => {
-    sessionStorage.removeItem(STORAGE_KEY)
+    localStorage.removeItem(STORAGE_KEY)
     setSession(null)
+  }, [])
+
+  // If GitHub ever rejects the stored token (expired/revoked), drop the session so
+  // RequireAuth bounces the user back to /connect instead of failing silently.
+  useEffect(() => onUnauthorized(disconnect), [disconnect])
+
+  // Keep multiple tabs in sync: signing out (or in) in one tab reflects in the others,
+  // since they now share the same localStorage-backed session.
+  useEffect(() => {
+    function handleStorage(e: StorageEvent) {
+      if (e.key !== STORAGE_KEY) return
+      try {
+        setSession(e.newValue ? (JSON.parse(e.newValue) as StoredSession) : null)
+      } catch {
+        setSession(null)
+      }
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
   }, [])
 
   const value = useMemo<AuthContextValue>(

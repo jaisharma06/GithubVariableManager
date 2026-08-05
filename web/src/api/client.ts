@@ -1,4 +1,5 @@
 import { setRateLimit } from '../lib/rateLimitStore'
+import { notifyUnauthorized } from '../lib/authEvents'
 
 const GITHUB_API = 'https://api.github.com'
 
@@ -49,6 +50,9 @@ export async function githubFetch<T>(token: string, path: string, init?: Request
     } catch {
       // response had no JSON body
     }
+    // The stored token was revoked/expired server-side — clear the session so the
+    // user lands back on /connect instead of seeing a wall of failed requests.
+    if (res.status === 401) notifyUnauthorized()
     throw new GitHubApiError(message, res.status)
   }
 

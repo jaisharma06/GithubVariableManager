@@ -11,6 +11,7 @@ interface ScopeSidebarProps {
   filters: LedgerFilters
   onNavigate: (level: LedgerFilters['level'], env?: string) => void
   onCreateEnvironment: (name: string) => Promise<void>
+  onRenameEnvironment: (name: string) => void
   onDeleteEnvironment: (name: string) => void
 }
 
@@ -22,6 +23,7 @@ export function ScopeSidebar({
   filters,
   onNavigate,
   onCreateEnvironment,
+  onRenameEnvironment,
   onDeleteEnvironment,
 }: ScopeSidebarProps) {
   return (
@@ -56,6 +58,7 @@ export function ScopeSidebar({
                 active={filters.level === 'environment' && filters.env === env.name}
                 label={env.name}
                 onClick={() => onNavigate('environment', env.name)}
+                onRename={() => onRenameEnvironment(env.name)}
                 onDelete={() => onDeleteEnvironment(env.name)}
               />
             ))}
@@ -112,11 +115,13 @@ function EnvironmentItem({
   active,
   label,
   onClick,
+  onRename,
   onDelete,
 }: {
   active: boolean
   label: string
   onClick: () => void
+  onRename: () => void
   onDelete: () => void
 }) {
   return (
@@ -137,6 +142,14 @@ function EnvironmentItem({
           <EnvIcon />
         </span>
         <span className="min-w-0 flex-1 truncate">{label}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onRename}
+        title={`Rename environment "${label}"`}
+        className="shrink-0 rounded p-1 text-text-dim opacity-0 hover:text-text group-hover:opacity-100"
+      >
+        <EditIcon />
       </button>
       <button
         type="button"
@@ -249,6 +262,15 @@ function EnvIcon() {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="m12 2 9 4.9v10.2L12 22l-9-4.9V6.9L12 2Z" />
       <path d="M12 22v-9.1M3 6.9l9 5 9-5" />
+    </svg>
+  )
+}
+
+function EditIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
     </svg>
   )
 }

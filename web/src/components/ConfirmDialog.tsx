@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Button } from './Button'
 
 interface ConfirmDialogProps {
   title: string
-  description: string
+  description: ReactNode
   confirmLabel: string
   error?: string | null
   confirming?: boolean
@@ -47,7 +47,7 @@ export function ConfirmDialog({
         <h2 id="confirm-title" className="font-sans text-base font-semibold text-text">
           {title}
         </h2>
-        <p className="mt-2 text-sm text-text-dim">{description}</p>
+        <div className="mt-2 text-sm text-text-dim">{description}</div>
         {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="ghost" onClick={onCancel} disabled={confirming}>

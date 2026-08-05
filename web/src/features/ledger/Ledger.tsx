@@ -20,6 +20,7 @@ interface LedgerProps {
   onAdd: () => void
   onAddToSection: (level: ItemLevel, env?: string) => void
   onEdit: (item: LedgerItem) => void
+  onCopy: (item: LedgerItem) => void
   onDelete: (item: LedgerItem) => void
 }
 
@@ -103,6 +104,7 @@ export function Ledger({
   onAdd,
   onAddToSection,
   onEdit,
+  onCopy,
   onDelete,
 }: LedgerProps) {
   const [hideValues, setHideValues] = useState(false)
@@ -223,6 +225,7 @@ export function Ledger({
                         item={item}
                         hideValues={hideValues}
                         onEdit={() => onEdit(item)}
+                        onCopy={() => onCopy(item)}
                         onDelete={() => onDelete(item)}
                       />
                     ))}

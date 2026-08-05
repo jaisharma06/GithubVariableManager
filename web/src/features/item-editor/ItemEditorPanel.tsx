@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import {
+  sameScope,
+  useCopyItem,
   useCreateVariable,
   useOrgRepos,
   usePutSecret,
@@ -15,10 +17,17 @@ import { Button } from '../../components/Button'
 interface ItemEditorPanelProps {
   scope: DashboardScope
   environments: GithubEnvironment[]
+  /** The full ledger — used to decide create-vs-update when replicating to other environments. */
+  items: LedgerItem[]
   initial: LedgerItem | null
   /** Pre-fill the level/environment when opened from a section's own "+ Add" button. */
   initialLevel?: ItemLevel
   initialEnv?: string
+  /** Pre-fill name/kind when opened to fill in one specific cell (e.g. from the compare view). */
+  initialName?: string
+  initialKind?: ItemKind
+  /** Locks level/environment/name/kind — used when the target scope+name is already decided for us. */
+  lockTarget?: boolean
   showOrgLevel: boolean
   onClose: () => void
 }
@@ -28,9 +37,13 @@ const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 export function ItemEditorPanel({
   scope,
   environments,
+  items,
   initial,
   initialLevel,
   initialEnv,
+  initialName,
+  initialKind,
+  lockTarget = false,
   showOrgLevel,
   onClose,
 }: ItemEditorPanelProps) {
@@ -43,19 +56,26 @@ export function ItemEditorPanel({
   const [envName, setEnvName] = useState<string>(
     initial?.scope.env ?? initialEnv ?? environments[0]?.name ?? '',
   )
-  const [kind, setKind] = useState<ItemKind>(initial?.kind ?? 'variable')
-  const [name, setName] = useState(initial?.name ?? '')
+  const [kind, setKind] = useState<ItemKind>(initial?.kind ?? initialKind ?? 'variable')
+  const [name, setName] = useState(initial?.name ?? initialName ?? '')
   const [value, setValue] = useState(initial?.kind === 'variable' ? (initial.value ?? '') : '')
   const [visibility, setVisibility] = useState<SecretVisibility>(initial?.visibility ?? 'all')
   const [selectedRepoIds, setSelectedRepoIds] = useState<Set<number>>(new Set())
+  const [replicateEnvs, setReplicateEnvs] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
+  const [replicateFailures, setReplicateFailures] = useState<{ label: string; message: string }[] | null>(null)
 
   const createVariable = useCreateVariable(token)
   const updateVariable = useUpdateVariable(token)
   const putSecret = usePutSecret(token)
   const renameSecret = useRenameSecret(token)
+  const { copyTo, isPending: copyPending } = useCopyItem(token)
   const submitting =
-    createVariable.isPending || updateVariable.isPending || putSecret.isPending || renameSecret.isPending
+    createVariable.isPending ||
+    updateVariable.isPending ||
+    putSecret.isPending ||
+    renameSecret.isPending ||
+    copyPending
 
   const needsVisibilityPicker = kind === 'secret' && level === 'organization'
   const orgReposQuery = useOrgRepos(token, scope.org, needsVisibilityPicker && visibility === 'selected')
@@ -78,9 +98,28 @@ export function ItemEditorPanel({
 
   const isRenaming = isEdit && name !== initial!.name
 
+  /** Other environments this new item could also be created in, in one go. */
+  const replicateCandidates = useMemo(() => {
+    if (isEdit || lockTarget || !scope.repo) return []
+    return environments
+      .filter((env) => !(level === 'environment' && env.name === envName))
+      .map((env) => {
+        const s: ScopeRef = { org: scope.org, repo: scope.repo, env: env.name }
+        return {
+          key: env.name,
+          label: env.name,
+          scope: s,
+          existing: items.find(
+            (i) => i.kind === kind && i.level === 'environment' && i.name === name && sameScope(i.scope, s),
+          ),
+        }
+      })
+  }, [isEdit, lockTarget, scope, environments, level, envName, items, kind, name])
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    setReplicateFailures(null)
 
     if (!name.trim() || !NAME_PATTERN.test(name)) {
       setError('Name must start with a letter or underscore and contain only letters, numbers, and underscores.')
@@ -103,6 +142,9 @@ export function ItemEditorPanel({
       return
     }
 
+    const options: PutSecretOptions | undefined =
+      kind === 'secret' && level === 'organization' ? { visibility, selectedRepositoryIds: [...selectedRepoIds] } : undefined
+
     try {
       if (kind === 'variable') {
         if (isEdit) {
@@ -111,9 +153,6 @@ export function ItemEditorPanel({
           await createVariable.mutateAsync({ scope: targetScope, level, name, value })
         }
       } else {
-        const options: PutSecretOptions | undefined =
-          level === 'organization' ? { visibility, selectedRepositoryIds: [...selectedRepoIds] } : undefined
-
         if (isEdit && isRenaming) {
           await renameSecret.mutateAsync({ scope: targetScope, level, currentName: initial!.name, newName: name, value, options })
         } else if (isEdit && !value) {
@@ -123,6 +162,25 @@ export function ItemEditorPanel({
           await putSecret.mutateAsync({ scope: targetScope, level, name, value, options })
         }
       }
+
+      if (!isEdit && replicateEnvs.size > 0) {
+        const targets = replicateCandidates
+          .filter((c) => replicateEnvs.has(c.key))
+          .map((c) => ({ level: 'environment' as const, scope: c.scope, exists: !!c.existing }))
+        const outcome = await copyTo(kind, name, value, targets, options)
+        if (!outcome.every((r) => r.ok)) {
+          setReplicateFailures(
+            outcome
+              .filter((r) => !r.ok)
+              .map((r) => ({
+                label: replicateCandidates.find((c) => sameScope(c.scope, r.target.scope))?.label ?? r.target.scope.env ?? '?',
+                message: r.message ?? 'Unknown error',
+              })),
+          )
+          return
+        }
+      }
+
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'GitHub rejected this request.')
@@ -148,13 +206,13 @@ export function ItemEditorPanel({
         <div className="border-b border-line px-5 py-4">
           <p className="font-mono text-xs uppercase tracking-widest text-brand">{isEdit ? 'Edit' : 'Add'}</p>
           <h2 className="mt-1 font-display text-lg font-semibold text-text">
-            {isEdit ? initial!.name : 'New variable or secret'}
+            {isEdit ? initial!.name : lockTarget ? initialName : 'New variable or secret'}
           </h2>
         </div>
 
         <div className="flex-1 space-y-4 px-5 py-4">
           <Field label="Level">
-            {scope.repo && !isEdit ? (
+            {scope.repo && !isEdit && !lockTarget ? (
               <select
                 className={selectClass}
                 value={level}
@@ -172,7 +230,7 @@ export function ItemEditorPanel({
             )}
           </Field>
 
-          {!isEdit && level === 'environment' ? (
+          {!isEdit && !lockTarget && level === 'environment' ? (
             <Field label="Environment">
               <select className={selectClass} value={envName} onChange={(e) => setEnvName(e.target.value)}>
                 {environments.map((env) => (
@@ -185,7 +243,7 @@ export function ItemEditorPanel({
           ) : null}
 
           <Field label="Type">
-            {isEdit ? (
+            {isEdit || lockTarget ? (
               <p className="font-mono text-sm text-text-dim">{kind}</p>
             ) : (
               <div className="flex gap-2">
@@ -207,12 +265,13 @@ export function ItemEditorPanel({
 
           <Field label="Name">
             <input
-              autoFocus={!isEdit}
+              autoFocus={!isEdit && !lockTarget}
               value={name}
+              disabled={lockTarget}
               onChange={(e) => setName(e.target.value.toUpperCase())}
               placeholder="API_URL"
               spellCheck={false}
-              className={inputClass}
+              className={`${inputClass} ${lockTarget ? 'opacity-70' : ''}`}
             />
             {!nameValid ? (
               <p className="mt-1 text-xs text-danger">Letters, numbers, and underscores only.</p>
@@ -237,6 +296,37 @@ export function ItemEditorPanel({
               className={`${inputClass} resize-y`}
             />
           </Field>
+
+          {!isEdit && !lockTarget && replicateCandidates.length > 0 ? (
+            <Field label="Also create in other environments">
+              <div className="max-h-40 space-y-0 overflow-y-auto rounded-md border border-line">
+                {replicateCandidates.map((c) => (
+                  <label
+                    key={c.key}
+                    className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-sm last:border-b-0"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={replicateEnvs.has(c.key)}
+                      onChange={() =>
+                        setReplicateEnvs((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(c.key)) next.delete(c.key)
+                          else next.add(c.key)
+                          return next
+                        })
+                      }
+                    />
+                    <span className="font-mono text-xs text-text">{c.label}</span>
+                    {c.existing ? <span className="ml-auto text-xs text-danger">will overwrite</span> : null}
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-text-dim">
+                Creates this {kind} with the same value in every environment checked above.
+              </p>
+            </Field>
+          ) : null}
 
           {needsVisibilityPicker ? (
             <Field label="Which repos can use this?">
@@ -274,11 +364,22 @@ export function ItemEditorPanel({
           ) : null}
 
           {error ? <p className="text-sm text-danger">{error}</p> : null}
+
+          {replicateFailures ? (
+            <div className="space-y-1 rounded-md border border-danger/30 bg-danger-dim p-2.5">
+              <p className="text-xs font-medium text-danger">Saved here, but copying to some environments failed:</p>
+              {replicateFailures.map((f) => (
+                <p key={f.label} className="text-xs text-text-dim">
+                  <span className="text-danger">{f.label}</span>: {f.message}
+                </p>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-line px-5 py-4">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
+            {replicateFailures ? 'Close' : 'Cancel'}
           </Button>
           <Button type="submit" variant="primary" disabled={submitting}>
             {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Create'}
