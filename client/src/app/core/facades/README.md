@@ -69,16 +69,24 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   `OptimisticVariable`, `OptimisticSecret`; plus the `LedgerPartialError`/`LedgerLockedSection`/
   `LedgerResult` types. `RunLedgerJobs`/`JobLabel`/`LedgerJob` (the client-side fan-out) were
   deleted once that logic moved server-side — see `LedgerFacade.ts` above.
-- **`WorkflowsFacade.ts`** — `WorkflowsQuery(org, repo)`/`WorkflowRunsQuery(org, repo, workflowId)`
-  (methods, same reasoning as `ScopesFacade`/`EnvironmentsFacade` above); `deleteWorkflowRun` is a
-  shared `injectMutation` field for a single run. `WorkflowRunsQuery` polls conditionally —
+- **`WorkflowsFacade.ts`** — `WorkflowsQuery(org, repo)`/`WorkflowRunsQuery(org, repo, workflowId)`/
+  `WorkflowRunDetailQuery(org, repo, runId)` (methods, same reasoning as `ScopesFacade`/
+  `EnvironmentsFacade` above); `deleteWorkflowRun`/`rerunWorkflowRun` are shared `injectMutation`
+  fields, each for a single run. `WorkflowRunsQuery` polls conditionally —
   `refetchInterval: (query) => AllRunsSettled(query.state.data) ? false : WORKFLOW_RUNS_POLL_INTERVAL_MS`
   (5s) — re-fetching while any displayed run is still in flight and stopping entirely once every
   visible run has reached `status === 'completed'`, unlike `RunnersFacade`'s unconditional 30s poll
   above (a runner's online/offline/busy status never settles the way a run's terminal state does, so
   the same "poll forever" approach would just be wasted calls here). `AllRunsSettled` is exported and
   directly unit-tested (`WorkflowsFacade.spec.ts`) as the one piece of real decision logic in the
-  poll. `WorkflowsQuery` (the workflow list itself) is not polled. `DeleteRuns(org, repo, workflowId, runIds,
+  poll. `WorkflowRunDetailQuery` — added for the run-detail panel — is the single-run analog: same
+  conditional-polling philosophy, gated by a separate exported `DetailRunSettled(detail)` helper
+  (deliberately not generalized into one shared function with `AllRunsSettled`, since the two work
+  off different shapes — a `WorkflowRun[]` vs. one `WorkflowRunDetail` — and this codebase prefers
+  boring duplication over coupling two shapes through a generic). `rerunWorkflowRun`'s `onSuccess`
+  invalidates both the `['workflow-runs', …]` list query and the `['workflow-run-detail', …]` query
+  for that run, so the run-detail panel and the runs list both pick up the new attempt without a
+  manual refresh. `WorkflowsQuery` (the workflow list itself) is not polled. `DeleteRuns(org, repo, workflowId, runIds,
   onProgress?)` bulk-deletes a caller-chosen set of a workflow's runs — as of Phase 5 (the ASP.NET
   Core migration's Workflows vertical), this shrank from its own client-side chunking
   (`DELETE_CHUNK_SIZE`, one `DeleteWorkflowRun` call per run via sequential `Promise.allSettled`

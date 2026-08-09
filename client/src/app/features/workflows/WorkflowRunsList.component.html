@@ -3,7 +3,7 @@
 } @else {
   <div class="min-w-[36rem]">
     <div
-      class="grid grid-cols-[2.5rem_5rem_1fr_10rem_10rem_4rem] items-center border-b border-line px-3 py-1.5 font-sans text-[11px] font-medium uppercase tracking-wider text-text-dim"
+      class="grid grid-cols-[2.5rem_minmax(14rem,1fr)_8rem_9rem_9rem_4rem_1.25rem] items-center border-b border-line px-3 py-1.5 font-sans text-[11px] font-medium uppercase tracking-wider text-text-dim"
     >
       <span>
         <input type="checkbox" [checked]="AllSelected()" [indeterminate]="SomeSelected()" (change)="HandleToggleSelectAll()" />
@@ -13,18 +13,37 @@
       <span>Created</span>
       <span>Updated</span>
       <span></span>
+      <span></span>
     </div>
     <div>
       @for (run of runs(); track run.id) {
         <div
-          class="group grid grid-cols-[2.5rem_5rem_1fr_10rem_10rem_4rem] items-center border-b border-line px-3 py-2 last:border-b-0 hover:bg-panel-raised"
+          role="button"
+          tabindex="0"
+          (click)="HandleRowClick(run)"
+          (keydown.enter)="HandleRowClick(run)"
+          class="group grid grid-cols-[2.5rem_minmax(14rem,1fr)_8rem_9rem_9rem_4rem_1.25rem] cursor-pointer items-center border-b border-line px-3 py-2 last:border-b-0 hover:bg-panel-raised"
         >
           <span>
-            <input type="checkbox" [checked]="selectedRunIds().has(run.id)" (change)="HandleToggleRun(run.id)" />
+            <input
+              type="checkbox"
+              [checked]="selectedRunIds().has(run.id)"
+              (change)="HandleToggleRun(run.id)"
+              (click)="$event.stopPropagation()"
+            />
           </span>
-          <a [href]="run.htmlUrl" target="_blank" rel="noreferrer" class="font-mono text-xs text-text hover:text-brand hover:underline">
-            #{{ run.runNumber }}
-          </a>
+          <span class="flex min-w-0 flex-col gap-0.5">
+            <span class="truncate font-sans text-xs text-text">{{ run.commitMessage ?? 'No commit message' }}</span>
+            <a
+              [href]="run.htmlUrl"
+              target="_blank"
+              rel="noreferrer"
+              (click)="$event.stopPropagation()"
+              class="w-fit font-mono text-[11px] text-text-dim hover:text-brand hover:underline"
+            >
+              #{{ run.runNumber }}
+            </a>
+          </span>
           <span class="flex items-center gap-1.5">
             <span class="h-1.5 w-1.5 shrink-0 rounded-full" [class]="WorkflowRunDotClass(run)" aria-hidden="true"></span>
             <span class="text-xs" [class]="WorkflowRunStatusClass(run)">{{ WorkflowRunStatusLabel(run) }}</span>
@@ -34,7 +53,7 @@
           <span class="flex justify-end opacity-60 transition-opacity group-hover:opacity-100">
             <button
               type="button"
-              (click)="HandleDeleteClick(run)"
+              (click)="$event.stopPropagation(); HandleDeleteClick(run)"
               [disabled]="deletingRunId() === run.id"
               title="Delete this run"
               class="rounded p-1.5 text-text-dim hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
@@ -44,6 +63,13 @@
                 <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6" />
               </svg>
             </button>
+          </span>
+          <!-- Decorative only: the affordance that this whole row opens the run's detail. Not its
+               own control — the row itself is the click/Enter target. -->
+          <span class="flex justify-end text-text-dim/50 transition-all group-hover:translate-x-0.5 group-hover:text-text-dim">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" aria-hidden="true">
+              <path d="m9 5 7 7-7 7" />
+            </svg>
           </span>
         </div>
       }

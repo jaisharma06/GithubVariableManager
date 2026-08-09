@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import type { GithubWorkflow, WorkflowRun } from '../Types';
+import type { GithubWorkflow, WorkflowRun, WorkflowRunDetail } from '../Types';
 import { GitHubApiError } from './GitHubApiError';
 import type { IWorkflowsGateway, WorkflowRunCleanupProgress } from './IWorkflowsGateway';
 
@@ -13,7 +13,7 @@ import type { IWorkflowsGateway, WorkflowRunCleanupProgress } from './IWorkflows
  * `GitHubApiError` conversion (`ToBackendWorkflowsError` below) that reads `locked` straight off the
  * backend's parsed `{ locked, status, message }` response body rather than recomputing it from
  * `status` — see `RunnersPanel.component.ts`'s `noAccess` precedent, mirrored here by
- * `WorkflowsView.component.ts`'s `PermissionAwareMessage`. Backend field names already match this
+ * `WorkflowRunMessages.ts`'s `PermissionAwareMessage`. Backend field names already match this
  * app's `GithubWorkflow`/`WorkflowRun` domain types (`JsonSerializerDefaults.Web` camelCases
  * `WorkflowResponse`/`WorkflowRunResponse`), so unlike the old `GithubWorkflowsGateway`, no
  * raw-to-domain mapping is needed here.
@@ -49,6 +49,28 @@ export class BackendWorkflowsGateway implements IWorkflowsGateway {
     try {
       await firstValueFrom(
         this.http.delete<void>(`${environment.backendApiBaseUrl}/api/workflows/runs?${params.toString()}`),
+      );
+    } catch (err) {
+      throw ToBackendWorkflowsError(err);
+    }
+  }
+
+  async GetWorkflowRunDetail(owner: string, repo: string, runId: number): Promise<WorkflowRunDetail> {
+    const params = new URLSearchParams({ org: owner, repo });
+    try {
+      return await firstValueFrom(
+        this.http.get<WorkflowRunDetail>(`${environment.backendApiBaseUrl}/api/workflows/runs/${runId}?${params.toString()}`),
+      );
+    } catch (err) {
+      throw ToBackendWorkflowsError(err);
+    }
+  }
+
+  async RerunWorkflowRun(owner: string, repo: string, runId: number): Promise<void> {
+    const params = new URLSearchParams({ org: owner, repo, runId: String(runId) });
+    try {
+      await firstValueFrom(
+        this.http.post<void>(`${environment.backendApiBaseUrl}/api/workflows/runs/rerun?${params.toString()}`, null),
       );
     } catch (err) {
       throw ToBackendWorkflowsError(err);

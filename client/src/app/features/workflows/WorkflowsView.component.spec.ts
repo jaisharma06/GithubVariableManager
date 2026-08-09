@@ -26,6 +26,7 @@ const RUN_1: WorkflowRun = {
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:05:00Z',
   htmlUrl: 'https://github.com/acme-corp/widgets/actions/runs/101',
+  commitMessage: 'Fix bug in parser',
 };
 
 const RUN_2: WorkflowRun = { ...RUN_1, id: 102, runNumber: 4 };

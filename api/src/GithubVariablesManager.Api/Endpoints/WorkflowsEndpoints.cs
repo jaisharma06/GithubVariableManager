@@ -5,12 +5,17 @@ using GithubVariablesManager.Api.Services;
 namespace GithubVariablesManager.Api.Endpoints;
 
 /// <summary>
-/// The Workflows vertical's routes — list a repo's Actions workflows, list/delete a workflow's
-/// runs, and the chunked bulk-run-delete's start+poll pair. Repeats the same missing-bearer-token
-/// 401 guard <c>RunnersEndpoints.cs</c>/<c>ScopesEndpoints.cs</c> use, inlined per-handler rather
-/// than extracted into shared middleware/a filter (rule of three not yet hit).
-/// <c>DELETE /api/workflows/runs</c> takes query params, not a body, matching
-/// <c>LedgerEndpoints.cs</c>'s bodyless-DELETE convention exactly.
+/// The Workflows vertical's routes — list a repo's Actions workflows, list/delete/rerun a
+/// workflow's runs, a single run's detail (jobs + steps), and the chunked bulk-run-delete's
+/// start+poll pair. Repeats the same missing-bearer-token 401 guard
+/// <c>RunnersEndpoints.cs</c>/<c>ScopesEndpoints.cs</c> use, inlined per-handler rather than
+/// extracted into shared middleware/a filter (rule of three not yet hit).
+/// <c>DELETE /api/workflows/runs</c> and <c>POST /api/workflows/runs/rerun</c> take query params,
+/// not a body/path segment, matching <c>LedgerEndpoints.cs</c>'s bodyless-write-action convention;
+/// <c>GET /api/workflows/runs/{runId}</c> puts the id in the path instead, matching the existing
+/// <c>GET /runs/cleanup/{jobId}</c> precedent for a specific-resource read. This asymmetry
+/// (read-by-path-id vs. write-by-query-param) is intentional, not something to "fix" into
+/// uniformity.
 /// </summary>
 public static class WorkflowsEndpoints
 {
@@ -61,6 +66,37 @@ public static class WorkflowsEndpoints
             .WithName("DeleteWorkflowRun")
             .WithTags("Workflows")
             .WithSummary("Delete a single workflow run.")
+            .Produces(200)
+            .Produces<ErrorResponse>(401);
+
+        group.MapGet("/runs/{runId:long}", async (long runId, string org, string repo, IBearerTokenAccessor tokenAccessor, WorkflowsService workflowsService) =>
+        {
+            if (tokenAccessor.GetToken() is null)
+            {
+                return Results.Json(new ErrorResponse("Missing bearer token."), statusCode: 401);
+            }
+
+            return Results.Ok(await workflowsService.GetWorkflowRunDetailAsync(org, repo, runId));
+        })
+            .WithName("GetWorkflowRunDetail")
+            .WithTags("Workflows")
+            .WithSummary("Get a single workflow run's detail, including every job and its steps (fully paginated).")
+            .Produces<WorkflowRunDetailResponse>(200)
+            .Produces<ErrorResponse>(401);
+
+        group.MapPost("/runs/rerun", async (string org, string repo, long runId, IBearerTokenAccessor tokenAccessor, WorkflowsService workflowsService) =>
+        {
+            if (tokenAccessor.GetToken() is null)
+            {
+                return Results.Json(new ErrorResponse("Missing bearer token."), statusCode: 401);
+            }
+
+            await workflowsService.RerunWorkflowRunAsync(org, repo, runId);
+            return Results.Ok();
+        })
+            .WithName("RerunWorkflowRun")
+            .WithTags("Workflows")
+            .WithSummary("Rerun a single workflow run.")
             .Produces(200)
             .Produces<ErrorResponse>(401);
 

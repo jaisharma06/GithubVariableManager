@@ -59,7 +59,13 @@ for why each layer stays single-purpose:
   start+poll pair: `POST /api/workflows/runs/cleanup` (202 + a job id) and `GET
   /api/workflows/runs/cleanup/{jobId}` (progress, 404 if the id is unknown) — see
   `Services/WorkflowRunCleanupService` below for why bulk-delete needs two endpoints instead of
-  one. Every resource-specific Gateway `client/` used to call `api.github.com` directly now has a
+  one. Post-Phase-5, `WorkflowsEndpoints.cs` grew two more routes for the run-detail panel/rerun
+  feature: `GET /api/workflows/runs/{runId:long}` (one run's full detail — the run itself plus every
+  job and its steps, fully paginated) and `POST /api/workflows/runs/rerun` (bodyless, query params —
+  matching `DELETE /api/workflows/runs`'s existing convention). The read-by-path-id vs.
+  write-by-query-param asymmetry between these two is intentional, not something to unify: the read
+  matches the existing `GET /runs/cleanup/{jobId}` precedent for a specific-resource lookup, while
+  the write matches `LedgerEndpoints.cs`'s bodyless-write-action convention. Every resource-specific Gateway `client/` used to call `api.github.com` directly now has a
   `Backend*Gateway.service.ts` counterpart calling this backend instead, and both batch-operation
   endpoints are live on both sides: `client/`'s `CopyFacade`/`DeleteEverywhereFacade` already cut
   over to call `POST /api/ledger/copy`/`POST /api/ledger/delete-everywhere` in one shot each,
@@ -115,7 +121,17 @@ for why each layer stays single-purpose:
   total-count-driven, the same idea as `ActionsRestClient`'s pagination but around a typed call
   instead of `Connection.Get<T>`, preserving the pre-migration Gateway's full-pagination behavior
   rather than silently capping it), while `ListWorkflowRunsAsync` stays single-page
-  (caller-supplied `perPage`, matching today's display-only usage). `WorkflowRunCleanupService`
+  (caller-supplied `perPage`, matching today's display-only usage). Post-Phase-5, `WorkflowsService`
+  gained `GetWorkflowRunDetailAsync` (the run itself via `Actions.Workflows.Runs.Get`, plus every
+  job and its steps via a fully-paginated `Actions.Workflows.Jobs.List` loop — same total-count-driven
+  shape as `ListWorkflowsAsync`, since a detail view's whole point is completeness, unlike
+  `ListWorkflowRunsAsync`'s deliberate single-page cap) and `RerunWorkflowRunAsync`
+  (`Actions.Workflows.Runs.Rerun`, no try/catch, propagating `Octokit.ApiException` uncaught same as
+  every other single-item mutation in this backend). Both share a private `ExtractCommitSubject`
+  helper that reads a run's `HeadCommit.Message`'s first line for `WorkflowRunResponse`/
+  `WorkflowRunDetailResponse`'s `CommitMessage` field — deliberately not `WorkflowRun.DisplayTitle`,
+  which is GitHub's own computed title and silently changes if the workflow's YAML sets a
+  `run-name:` directive. `WorkflowRunCleanupService`
   (Phase 5) is the chunked bulk-run-delete, and the one Service in this backend registered
   `AddSingleton` instead of `AddScoped` — a load-bearing choice, not a style one: the "start"
   request and every "poll" request after it are separate HTTP requests with separate DI scopes, so
@@ -208,6 +224,14 @@ for why each layer stays single-purpose:
   `StartWorkflowRunCleanupRequest`/`StartWorkflowRunCleanupResponse` (a job id) and
   `WorkflowRunCleanupProgressResponse` (`Done`/`Total`/`Completed`/`SucceededIds`/`FailedIds`/
   `PermissionDenied` — what `GET /api/workflows/runs/cleanup/{jobId}` returns on every poll).
+  Post-Phase-5, `WorkflowsContracts.cs` gained `CommitMessage` on `WorkflowRunResponse` (the run
+  list's commit-subject display name — see `Services/` above) and three new records for the
+  run-detail panel: `WorkflowRunJobStepResponse` (`Name`/`Number`/`Status`/`Conclusion`/`StartedAt`/
+  `CompletedAt`), `WorkflowRunJobResponse` (same shape plus `Id`/`Name` and an ordered
+  `IReadOnlyList<WorkflowRunJobStepResponse> Steps`), and `WorkflowRunDetailResponse` (the run
+  itself — `Id`/`Name`/`DisplayTitle`/`CommitMessage`/`Status`/`Conclusion`/`Event`/`RunNumber`/
+  `RunAttempt`/`HeadBranch`/`HeadSha`/`ActorLogin`/`ActorAvatarUrl`/timestamps/`HtmlUrl` — plus
+  `IReadOnlyList<WorkflowRunJobResponse> Jobs`), what `GET /api/workflows/runs/{runId}` returns.
   `LedgerContracts.cs` gains a batch-operations section in Phase 6: `LedgerScopeTargetRequest`/
   `LedgerScopeTargetResponse` (a single copy/delete-everywhere target, request and response shapes
   kept separate rather than reused, matching this file's existing request/response DTO separation

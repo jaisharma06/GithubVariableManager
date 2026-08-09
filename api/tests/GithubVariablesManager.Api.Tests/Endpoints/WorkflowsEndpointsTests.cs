@@ -56,6 +56,21 @@ public class WorkflowsEndpointsTests(WebApplicationFactory<Program> factory) : I
         {"total_count":1,"workflow_runs":[{"id":501,"name":"CI","status":"completed","conclusion":"success","run_number":7,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:05:00Z","html_url":"https://github.com/acme-corp/widgets/actions/runs/501"}]}
         """;
 
+    private const string RunDetailJson = """
+        {"id":501,"name":"CI","status":"completed","conclusion":"success","run_number":7,
+        "run_attempt":1,"event":"push","display_title":"Merge pull request #42",
+        "head_branch":"main","head_sha":"abc123",
+        "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:05:00Z",
+        "run_started_at":"2026-01-01T00:01:00Z",
+        "html_url":"https://github.com/acme-corp/widgets/actions/runs/501",
+        "actor":{"login":"octocat","avatar_url":"https://avatars.example/octocat.png"},
+        "head_commit":{"message":"Fix bug in parser\n\nSome longer body text here."}}
+        """;
+
+    private const string JobsJson = """
+        {"total_count":1,"jobs":[{"id":9001,"name":"build","status":"completed","conclusion":"success","started_at":"2026-01-01T00:01:00Z","completed_at":"2026-01-01T00:04:00Z","steps":[{"name":"Checkout","number":1,"status":"completed","conclusion":"success","started_at":"2026-01-01T00:01:00Z","completed_at":"2026-01-01T00:02:00Z"}]}]}
+        """;
+
     [Fact]
     public async Task Workflows_ValidToken_ReturnsCamelCasedWorkflows()
     {
@@ -165,6 +180,96 @@ public class WorkflowsEndpointsTests(WebApplicationFactory<Program> factory) : I
         var client = factory.CreateClient();
 
         var response = await client.DeleteAsync("/api/workflows/runs?org=octo-org&repo=widgets&runId=501");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"error\":\"Missing bearer token.\"", body);
+    }
+
+    [Fact]
+    public async Task WorkflowRunDetail_ValidToken_ReturnsCamelCasedDetailWithJobsAndSteps()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, RunDetailJson)
+            .Enqueue(HttpStatusCode.OK, JobsJson);
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.GetAsync("/api/workflows/runs/501?org=octo-org&repo=widgets");
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"id\":501", body);
+        Assert.Contains("\"displayTitle\":\"Merge pull request #42\"", body);
+        Assert.Contains("\"commitMessage\":\"Fix bug in parser\"", body);
+        Assert.Contains("\"actorLogin\":\"octocat\"", body);
+        Assert.Contains("\"jobs\":[{", body);
+        Assert.Contains("\"steps\":[{", body);
+    }
+
+    [Fact]
+    public async Task WorkflowRunDetail_LockedScope_GoesThroughGlobalExceptionHandler()
+    {
+        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.NotFound, """
+            {"message":"Not Found"}
+            """);
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.GetAsync("/api/workflows/runs/501?org=octo-org&repo=widgets");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"locked\":true", body);
+        Assert.Contains("\"status\":404", body);
+    }
+
+    [Fact]
+    public async Task WorkflowRunDetail_MissingBearerToken_Returns401()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/workflows/runs/501?org=octo-org&repo=widgets");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"error\":\"Missing bearer token.\"", body);
+    }
+
+    [Fact]
+    public async Task RerunWorkflowRun_ValidToken_Reruns()
+    {
+        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.Created, "{}");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsync("/api/workflows/runs/rerun?org=octo-org&repo=widgets&runId=501", null);
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(HttpMethod.Post, Assert.Single(handler.RequestedMethods));
+        var requestedPath = Assert.Single(handler.RequestedPaths);
+        Assert.Contains("/repos/octo-org/widgets/actions/runs/501/rerun", requestedPath);
+    }
+
+    [Fact]
+    public async Task RerunWorkflowRun_LockedScope_GoesThroughGlobalExceptionHandler()
+    {
+        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.NotFound, """
+            {"message":"Not Found"}
+            """);
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsync("/api/workflows/runs/rerun?org=octo-org&repo=widgets&runId=501", null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"locked\":true", body);
+        Assert.Contains("\"status\":404", body);
+    }
+
+    [Fact]
+    public async Task RerunWorkflowRun_MissingBearerToken_Returns401()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/workflows/runs/rerun?org=octo-org&repo=widgets&runId=501", null);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();

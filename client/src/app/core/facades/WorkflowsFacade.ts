@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { injectMutation, injectQuery, injectQueryClient } from '@tanstack/angular-query-experimental';
 import { AuthService } from '../services/AuthService';
 import { WORKFLOWS_GATEWAY, type IWorkflowsGateway } from '../gateways/IWorkflowsGateway';
-import type { WorkflowRun } from '../Types';
+import type { WorkflowRun, WorkflowRunDetail } from '../Types';
 
 const RUNS_DISPLAY_PAGE_SIZE = 30;
 /** How often to re-poll an in-flight bulk-run-delete job — see DeleteRuns's doc comment. */
@@ -14,6 +14,12 @@ interface DeleteWorkflowRunParams {
   org: string;
   repo: string;
   workflowId: number;
+  runId: number;
+}
+
+interface RerunWorkflowRunParams {
+  org: string;
+  repo: string;
   runId: number;
 }
 
@@ -31,6 +37,15 @@ function Delay(ms: number): Promise<void> {
 /** True once every displayed run has reached a terminal status — nothing left to poll for. */
 export function AllRunsSettled(runs: WorkflowRun[] | undefined): boolean {
   return !runs || runs.every((r) => r.status === 'completed');
+}
+
+/**
+ * Same idea as AllRunsSettled, kept as a small separate function rather than a shared generic
+ * helper — deliberate duplication over coupling two different shapes (WorkflowRun[] vs. a single
+ * WorkflowRunDetail) through one generic, matching this codebase's "boring over clever" preference.
+ */
+export function DetailRunSettled(detail: WorkflowRunDetail | undefined): boolean {
+  return !detail || detail.status === 'completed';
 }
 
 /**
@@ -71,10 +86,33 @@ export class WorkflowsFacade {
     }));
   }
 
+  /**
+   * A single run's full detail (jobs + steps), for the run detail panel. Same conditional-polling
+   * philosophy as WorkflowRunsQuery: every 5s while the run is still in flight, not at all once it's
+   * settled — DetailRunSettled is the single-run analog of AllRunsSettled.
+   */
+  WorkflowRunDetailQuery(org: () => string, repo: () => string, runId: () => number | null) {
+    return injectQuery<WorkflowRunDetail>(() => ({
+      queryKey: ['workflow-run-detail', this.authService.token(), org(), repo(), runId()],
+      queryFn: () => this.workflowsGateway.GetWorkflowRunDetail(org(), repo(), runId()!),
+      enabled: !!this.authService.token() && runId() !== null,
+      refetchInterval: (query) => (DetailRunSettled(query.state.data) ? false : WORKFLOW_RUNS_POLL_INTERVAL_MS),
+    }));
+  }
+
   readonly deleteWorkflowRun = injectMutation(() => ({
     mutationFn: (p: DeleteWorkflowRunParams) => this.workflowsGateway.DeleteWorkflowRun(p.org, p.repo, p.runId),
     onSuccess: (_data, p) => {
       this.queryClient.invalidateQueries({ queryKey: ['workflow-runs', this.authService.token(), p.org, p.repo, p.workflowId] });
+    },
+  }));
+
+  readonly rerunWorkflowRun = injectMutation(() => ({
+    mutationFn: (p: RerunWorkflowRunParams) => this.workflowsGateway.RerunWorkflowRun(p.org, p.repo, p.runId),
+    onSuccess: (_data, p) => {
+      const token = this.authService.token();
+      this.queryClient.invalidateQueries({ queryKey: ['workflow-runs', token, p.org, p.repo] });
+      this.queryClient.invalidateQueries({ queryKey: ['workflow-run-detail', token, p.org, p.repo, p.runId] });
     },
   }));
 

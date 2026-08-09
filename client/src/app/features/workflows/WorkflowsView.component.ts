@@ -1,8 +1,9 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
-import { GitHubApiError } from '../../core/gateways/GitHubApiError';
 import { WorkflowsFacade } from '../../core/facades/WorkflowsFacade';
 import type { GithubWorkflow, WorkflowRun } from '../../core/Types';
 import { ConfirmDialogComponent } from '../../shared/components/ConfirmDialog.component';
+import { PermissionAwareMessage } from './WorkflowRunMessages';
+import { WorkflowRunDetailPanelComponent } from './WorkflowRunDetailPanel.component';
 import { WorkflowRunsListComponent } from './WorkflowRunsList.component';
 
 const STATE_LABELS: Record<GithubWorkflow['state'], string> = {
@@ -12,13 +13,6 @@ const STATE_LABELS: Record<GithubWorkflow['state'], string> = {
   disabled_inactivity: 'Disabled (inactive)',
   disabled_manually: 'Disabled',
 };
-
-function PermissionAwareMessage(err: unknown): string {
-  if (err instanceof GitHubApiError && err.locked) {
-    return 'GitHub rejected this — deleting workflow runs requires write access to this repository.';
-  }
-  return err instanceof Error ? err.message : 'GitHub rejected this request.';
-}
 
 /**
  * Browse a repo's Actions workflows, view a selected workflow's latest runs, and bulk-delete a
@@ -30,7 +24,7 @@ function PermissionAwareMessage(err: unknown): string {
  */
 @Component({
   selector: 'app-workflows-view',
-  imports: [ConfirmDialogComponent, WorkflowRunsListComponent],
+  imports: [ConfirmDialogComponent, WorkflowRunDetailPanelComponent, WorkflowRunsListComponent],
   templateUrl: './WorkflowsView.component.html',
 })
 export class WorkflowsViewComponent {
@@ -57,6 +51,14 @@ export class WorkflowsViewComponent {
 
   protected readonly deletingRunId = signal<number | null>(null);
   protected readonly runDeleteError = signal<string | null>(null);
+
+  /**
+   * The run currently opened for detail viewing, if any. Everything else about the detail view —
+   * the jobs/steps query, the rerun mutation, which jobs are expanded — belongs to
+   * WorkflowRunDetailPanelComponent, matching how CopyItemDialogComponent owns its own facade work
+   * rather than having it threaded down from its host.
+   */
+  protected readonly selectedRunForDetail = signal<WorkflowRun | null>(null);
 
   /** Ids of runs checked for bulk delete — scoped to the currently-displayed page of runs. */
   protected readonly selectedRunIds = signal<Set<number>>(new Set());
@@ -96,6 +98,15 @@ export class WorkflowsViewComponent {
     this.selectedWorkflowId.set(workflow.id);
     this.runDeleteError.set(null);
     this.selectedRunIds.set(new Set());
+    this.selectedRunForDetail.set(null);
+  }
+
+  protected HandleViewDetail(run: WorkflowRun): void {
+    this.selectedRunForDetail.set(run);
+  }
+
+  protected HandleCloseDetail(): void {
+    this.selectedRunForDetail.set(null);
   }
 
   protected async HandleDeleteRun(run: WorkflowRun): Promise<void> {

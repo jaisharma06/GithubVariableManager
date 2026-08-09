@@ -1,5 +1,5 @@
 import { InjectionToken } from '@angular/core';
-import type { GithubWorkflow, WorkflowRun } from '../Types';
+import type { GithubWorkflow, WorkflowRun, WorkflowRunDetail } from '../Types';
 
 /** Progress of an in-flight bulk-run-delete job — see `StartRunCleanup`/`PollRunCleanup` below. */
 export interface WorkflowRunCleanupProgress {
@@ -22,6 +22,9 @@ export interface IWorkflowsGateway {
   /** A single page of the most recent runs, newest first — for display and for selection. */
   ListWorkflowRuns(owner: string, repo: string, workflowId: number, perPage: number): Promise<WorkflowRun[]>;
   DeleteWorkflowRun(owner: string, repo: string, runId: number): Promise<void>;
+  /** One run's full detail, including every job and its steps (fully paginated server-side). */
+  GetWorkflowRunDetail(owner: string, repo: string, runId: number): Promise<WorkflowRunDetail>;
+  RerunWorkflowRun(owner: string, repo: string, runId: number): Promise<void>;
   /** Kicks off a bulk-run-delete job server-side; returns the job id to poll for progress. */
   StartRunCleanup(owner: string, repo: string, workflowId: number, runIds: number[]): Promise<string>;
   /** Polls an in-flight bulk-run-delete job's progress. */

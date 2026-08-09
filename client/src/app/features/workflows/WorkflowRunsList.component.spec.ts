@@ -11,6 +11,7 @@ const SUCCESS_RUN: WorkflowRun = {
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:05:00Z',
   htmlUrl: 'https://github.com/acme-corp/widgets/actions/runs/1',
+  commitMessage: 'Fix bug in parser',
 };
 
 const IN_PROGRESS_RUN: WorkflowRun = {
@@ -138,5 +139,63 @@ describe('WorkflowRunsListComponent', () => {
     const rows = RowCheckboxes(fixture);
     expect(rows[0].checked).toBe(false);
     expect(rows[1].checked).toBe(true);
+  });
+
+  it('renders the commit message as the primary row text', async () => {
+    fixture = await CreateFixture([SUCCESS_RUN]);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Fix bug in parser');
+  });
+
+  // Regression coverage for the row-click-opens-detail design: a whole-row click must open the
+  // detail view, but clicking any of the row's own interactive controls (checkbox, delete button,
+  // external run-number link) must act on that control only, not also open detail.
+  it('emits viewDetail with the clicked run when the row itself is clicked', async () => {
+    fixture = await CreateFixture([SUCCESS_RUN]);
+    const viewDetailSpy = jasmine.createSpy('viewDetail');
+    fixture.componentInstance.viewDetail.subscribe(viewDetailSpy);
+
+    const row = fixture.nativeElement.querySelector('[role="button"]') as HTMLElement;
+    row.click();
+
+    expect(viewDetailSpy).toHaveBeenCalledWith(SUCCESS_RUN);
+  });
+
+  it('emits toggleRun but not viewDetail when a row checkbox is clicked', async () => {
+    fixture = await CreateFixture([SUCCESS_RUN, FAILED_RUN]);
+    const toggleSpy = jasmine.createSpy('toggleRun');
+    const viewDetailSpy = jasmine.createSpy('viewDetail');
+    fixture.componentInstance.toggleRun.subscribe(toggleSpy);
+    fixture.componentInstance.viewDetail.subscribe(viewDetailSpy);
+
+    RowCheckboxes(fixture)[0].click();
+
+    expect(toggleSpy).toHaveBeenCalledWith(SUCCESS_RUN.id);
+    expect(viewDetailSpy).not.toHaveBeenCalled();
+  });
+
+  it('emits deleteRun but not viewDetail when the delete button is clicked', async () => {
+    fixture = await CreateFixture([SUCCESS_RUN]);
+    const deleteSpy = jasmine.createSpy('deleteRun');
+    const viewDetailSpy = jasmine.createSpy('viewDetail');
+    fixture.componentInstance.deleteRun.subscribe(deleteSpy);
+    fixture.componentInstance.viewDetail.subscribe(viewDetailSpy);
+
+    const button = fixture.nativeElement.querySelector('button[title="Delete this run"]') as HTMLButtonElement;
+    button.click();
+
+    expect(deleteSpy).toHaveBeenCalledWith(SUCCESS_RUN);
+    expect(viewDetailSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not emit viewDetail when the external run-number link is clicked', async () => {
+    fixture = await CreateFixture([SUCCESS_RUN]);
+    const viewDetailSpy = jasmine.createSpy('viewDetail');
+    fixture.componentInstance.viewDetail.subscribe(viewDetailSpy);
+
+    const link = fixture.nativeElement.querySelector('a[href]') as HTMLAnchorElement;
+    link.addEventListener('click', (e) => e.preventDefault());
+    link.click();
+
+    expect(viewDetailSpy).not.toHaveBeenCalled();
   });
 });

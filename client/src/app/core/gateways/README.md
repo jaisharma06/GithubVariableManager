@@ -61,13 +61,19 @@ see `docs/Architecture.md`'s "Gateway/Adapter" pattern entry for the full ration
   (`DELETE_CHUNK_SIZE`, one `DeleteWorkflowRun` call per run, `Promise.allSettled` per chunk); now a
   single `POST /api/workflows/runs/cleanup` kicks off the chunked fan-out server-side
   (`api/Services/WorkflowRunCleanupService.cs`) and `GET
-  /api/workflows/runs/cleanup/{jobId}` is polled for progress. Has its own local
+  /api/workflows/runs/cleanup/{jobId}` is polled for progress. `GetWorkflowRunDetail(owner, repo,
+  runId)` (`GET /api/workflows/runs/{runId}`) and `RerunWorkflowRun(owner, repo, runId)` (`POST
+  /api/workflows/runs/rerun`), added for the run-detail panel/rerun feature, round out the vertical:
+  the detail call returns a fully-paginated jobs+steps tree server-side
+  (`Services/WorkflowsService.GetWorkflowRunDetailAsync`), same "no raw-to-domain mapping needed"
+  precedent as the rest of this Gateway. Has its own local
   `HttpErrorResponse` -> `GitHubApiError` conversion (`ToBackendWorkflowsError`), mirroring
   `BackendRunnersGateway`'s exact pattern: reads `locked` straight off the backend's parsed `{
   locked, status, message }` response body rather than recomputing it from `status`, so
-  `WorkflowsView.component.ts`'s `PermissionAwareMessage` now checks `err.locked` instead of
-  `err.status === 403` — the last of the four originally-duplicated permission-classification sites
-  (see `docs/Architecture.md`).
+  `features/workflows/WorkflowRunMessages.ts`'s `PermissionAwareMessage` (moved out of
+  `WorkflowsView.component.ts`, its original home, once the run-detail panel needed it too without a
+  circular import) checks `err.locked` instead of `err.status === 403` — the last of the four
+  originally-duplicated permission-classification sites (see `docs/Architecture.md`).
 - `IScopesGateway.ts` / `BackendScopesGateway.service.ts` — talks to the `api/` ASP.NET Core
   backend's Scopes vertical (`Endpoints/ScopesEndpoints.cs`), injecting `HttpClient` directly, with
   its base URL from `environments/environment.ts`'s `backendApiBaseUrl`. Unlike

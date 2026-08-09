@@ -74,12 +74,17 @@
             (deleteRun)="HandleDeleteRun($event)"
             (toggleRun)="HandleToggleRun($event)"
             (toggleSelectAll)="HandleToggleSelectAll()"
+            (viewDetail)="HandleViewDetail($event)"
           />
         }
       </div>
     }
   </div>
 </div>
+
+@if (selectedRunForDetail(); as run) {
+  <app-workflow-run-detail-panel [org]="org()" [repo]="repo()" [run]="run" (closed)="HandleCloseDetail()" />
+}
 
 @if (confirmDelete(); as workflow) {
   <app-confirm-dialog

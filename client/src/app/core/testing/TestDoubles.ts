@@ -95,6 +95,8 @@ export function CreateFakeWorkflowsGateway(): jasmine.SpyObj<IWorkflowsGateway> 
     'ListWorkflows',
     'ListWorkflowRuns',
     'DeleteWorkflowRun',
+    'GetWorkflowRunDetail',
+    'RerunWorkflowRun',
     'StartRunCleanup',
     'PollRunCleanup',
   ]);

@@ -95,4 +95,45 @@ export interface WorkflowRun {
   createdAt: string;
   updatedAt: string;
   htmlUrl: string;
+  commitMessage: string | null;
+}
+
+export interface WorkflowRunJobStep {
+  name: string;
+  number: number;
+  status: string | null;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface WorkflowRunJob {
+  id: number;
+  name: string;
+  status: string | null;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  steps: WorkflowRunJobStep[];
+}
+
+export interface WorkflowRunDetail {
+  id: number;
+  name: string | null;
+  displayTitle: string | null;
+  commitMessage: string | null;
+  status: string | null;
+  conclusion: string | null;
+  event: string | null;
+  runNumber: number;
+  runAttempt: number;
+  headBranch: string | null;
+  headSha: string | null;
+  actorLogin: string | null;
+  actorAvatarUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  runStartedAt: string | null;
+  htmlUrl: string;
+  jobs: WorkflowRunJob[];
 }
