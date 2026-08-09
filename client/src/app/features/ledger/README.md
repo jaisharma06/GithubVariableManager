@@ -27,8 +27,12 @@
   other scopes at once. `BuildCandidates` (every other scope in the org/repo that could receive a
   copy, excluding the source, with an existing-item lookup for the overwrite/matches/not-set hint)
   is a free function, same rationale as `Ledger.component.ts`'s `GroupItems`. Submits through
-  `CopyFacade.CopyTo` — this component only assembles the target list and value; the batched
-  create-vs-update-per-target logic lives in the Facade.
+  `CopyFacade.CopyTo` — this component only assembles the target list and value. As of Phase 6, the
+  create-vs-update-per-target decision for variables is made server-side by `CopyService`/
+  `ILedgerGateway.Copy` (`Services/CopyService.cs`, itself calling the existing
+  `ItemMutationService.UpsertVariableAsync` in-process); `CopyFacade`/this component don't branch
+  on it — the `existing`-item lookup here is purely for the overwrite/matches/not-set UI hint, not
+  for picking a mutation.
 
 ## Wired into `DashboardShellComponent`
 

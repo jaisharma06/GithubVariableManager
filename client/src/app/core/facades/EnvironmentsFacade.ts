@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { injectMutation, injectQuery, injectQueryClient } from '@tanstack/angular-query-experimental';
 import { AuthService } from '../services/AuthService';
-import { ENVIRONMENTS_GATEWAY, type IEnvironmentsGateway } from '../gateways/IEnvironmentsGateway';
+import { ENVIRONMENTS_GATEWAY, type IEnvironmentsGateway, type RenameEnvironmentParams } from '../gateways/IEnvironmentsGateway';
 import type { GithubEnvironment } from '../Types';
 
 interface EnvironmentMutationParams {
@@ -60,6 +60,24 @@ export class EnvironmentsFacade {
     },
     onError: (_err, _p, context) => {
       if (context) this.queryClient.setQueryData(context.key, context.previous);
+    },
+  }));
+
+  /**
+   * As of Phase 3c, one backend call (create + copy variables + conditional delete, all
+   * server-side) replaces what used to be a 3-step client-side sequence with 3 separate granular
+   * cache patches. Deliberately no optimistic `onMutate` patch here — hand-rolling an equivalent
+   * multi-item optimistic patch (a new environment appearing, N variables appearing under it, the
+   * old environment disappearing, all from one mutation) is high-risk for low payoff. Instead,
+   * `onSuccess` invalidates both the environments list and the ledger broadly, mirroring
+   * `ItemMutationsFacade.renameSecret`'s `onSuccess` invalidation from Phase 3b exactly, accepting
+   * a brief refetch flicker as an honest tradeoff.
+   */
+  readonly renameEnvironment = injectMutation(() => ({
+    mutationFn: (p: RenameEnvironmentParams) => this.environmentsGateway.RenameEnvironment(p),
+    onSuccess: (_result, p) => {
+      this.queryClient.invalidateQueries({ queryKey: ['environments', this.authService.token(), p.org, p.repo] });
+      this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },
   }));
 }

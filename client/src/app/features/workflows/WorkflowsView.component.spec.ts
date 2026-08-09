@@ -1,10 +1,12 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { GitHubApiError } from '../../core/gateways/GitHubApiError';
+import { OAUTH_GATEWAY } from '../../core/gateways/IOAuthGateway';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
 import { WORKFLOWS_GATEWAY } from '../../core/gateways/IWorkflowsGateway';
 import type { GithubWorkflow, WorkflowRun } from '../../core/Types';
 import {
   ClearFakeSession,
+  CreateFakeOAuthGateway,
   CreateFakeScopesGateway,
   CreateFakeWorkflowsGateway,
   ProvideTestQueryClient,
@@ -28,6 +30,10 @@ const RUN_1: WorkflowRun = {
 
 const RUN_2: WorkflowRun = { ...RUN_1, id: 102, runNumber: 4 };
 
+// Mirrors WorkflowsFacade.ts's private WORKFLOW_CLEANUP_POLL_INTERVAL_MS — not exported, so kept in
+// sync here the same way OAuthDeviceFlow.component.spec.ts hardcodes FAKE_DEVICE.interval * 1000.
+const WORKFLOW_CLEANUP_POLL_INTERVAL_MS = 500;
+
 describe('WorkflowsViewComponent', () => {
   let fixture: ComponentFixture<WorkflowsViewComponent>;
   let fakeWorkflowsGateway: ReturnType<typeof CreateFakeWorkflowsGateway>;
@@ -49,6 +55,7 @@ describe('WorkflowsViewComponent', () => {
         ProvideTestQueryClient(),
         { provide: WORKFLOWS_GATEWAY, useValue: fakeWorkflowsGateway },
         { provide: SCOPES_GATEWAY, useValue: CreateFakeScopesGateway() },
+        { provide: OAUTH_GATEWAY, useValue: CreateFakeOAuthGateway() },
       ],
     }).compileComponents();
 
@@ -141,7 +148,15 @@ describe('WorkflowsViewComponent', () => {
   it(
     'deletes only the checked runs on confirm and closes the dialog',
     fakeAsync(() => {
-      fakeWorkflowsGateway.DeleteWorkflowRun.and.resolveTo();
+      fakeWorkflowsGateway.StartRunCleanup.and.resolveTo('job-1');
+      fakeWorkflowsGateway.PollRunCleanup.and.resolveTo({
+        done: 1,
+        total: 1,
+        completed: true,
+        succeededIds: [RUN_1.id],
+        failedIds: [],
+        permissionDenied: false,
+      });
       CheckRun(fixture, RUN_1.id);
       fixture.detectChanges();
 
@@ -149,11 +164,11 @@ describe('WorkflowsViewComponent', () => {
       fixture.detectChanges();
 
       FindButtonByText(fixture, 'Delete runs').click();
-      tick();
+      tick(); // StartRunCleanup resolves
+      tick(); // first PollRunCleanup resolves
       fixture.detectChanges();
 
-      expect(fakeWorkflowsGateway.DeleteWorkflowRun).toHaveBeenCalledTimes(1);
-      expect(fakeWorkflowsGateway.DeleteWorkflowRun).toHaveBeenCalledWith('acme-corp', 'widgets', RUN_1.id);
+      expect(fakeWorkflowsGateway.StartRunCleanup).toHaveBeenCalledWith('acme-corp', 'widgets', WORKFLOW.id, [RUN_1.id]);
       expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Delete 1 run?');
     }),
   );
@@ -161,9 +176,15 @@ describe('WorkflowsViewComponent', () => {
   it(
     'reports a partial failure without closing the dialog, flagging a permission problem, and narrows a retry to just the failed run',
     fakeAsync(() => {
-      fakeWorkflowsGateway.DeleteWorkflowRun.and.callFake((_org: string, _repo: string, runId: number) =>
-        runId === RUN_1.id ? Promise.resolve() : Promise.reject(new GitHubApiError('Forbidden', 403)),
-      );
+      fakeWorkflowsGateway.StartRunCleanup.and.resolveTo('job-1');
+      fakeWorkflowsGateway.PollRunCleanup.and.resolveTo({
+        done: 2,
+        total: 2,
+        completed: true,
+        succeededIds: [RUN_1.id],
+        failedIds: [RUN_2.id],
+        permissionDenied: true,
+      });
       CheckRun(fixture, RUN_1.id);
       CheckRun(fixture, RUN_2.id);
       fixture.detectChanges();
@@ -172,7 +193,8 @@ describe('WorkflowsViewComponent', () => {
       fixture.detectChanges();
 
       FindButtonByText(fixture, 'Delete runs').click();
-      tick();
+      tick(); // StartRunCleanup resolves
+      tick(); // first PollRunCleanup resolves
       fixture.detectChanges();
 
       const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
@@ -180,13 +202,64 @@ describe('WorkflowsViewComponent', () => {
       expect(text).toContain('write access to this repository is required');
       expect(text).toContain('Delete 1 run?');
 
-      fakeWorkflowsGateway.DeleteWorkflowRun.calls.reset();
+      fakeWorkflowsGateway.StartRunCleanup.calls.reset();
+      fakeWorkflowsGateway.StartRunCleanup.and.resolveTo('job-2');
+      fakeWorkflowsGateway.PollRunCleanup.and.resolveTo({
+        done: 1,
+        total: 1,
+        completed: true,
+        succeededIds: [RUN_2.id],
+        failedIds: [],
+        permissionDenied: false,
+      });
       FindButtonByText(fixture, 'Delete runs').click();
-      tick();
+      tick(); // StartRunCleanup resolves
+      tick(); // first PollRunCleanup resolves
       fixture.detectChanges();
 
-      expect(fakeWorkflowsGateway.DeleteWorkflowRun).toHaveBeenCalledTimes(1);
-      expect(fakeWorkflowsGateway.DeleteWorkflowRun).toHaveBeenCalledWith('acme-corp', 'widgets', RUN_2.id);
+      expect(fakeWorkflowsGateway.StartRunCleanup).toHaveBeenCalledTimes(1);
+      expect(fakeWorkflowsGateway.StartRunCleanup).toHaveBeenCalledWith('acme-corp', 'widgets', WORKFLOW.id, [RUN_2.id]);
+    }),
+  );
+
+  it(
+    'reports live incremental progress across multiple polls before completion',
+    fakeAsync(() => {
+      fakeWorkflowsGateway.StartRunCleanup.and.resolveTo('job-1');
+      fakeWorkflowsGateway.PollRunCleanup.and.resolveTo({
+        done: 0,
+        total: 2,
+        completed: false,
+        succeededIds: [],
+        failedIds: [],
+        permissionDenied: false,
+      });
+      CheckRun(fixture, RUN_1.id);
+      CheckRun(fixture, RUN_2.id);
+      fixture.detectChanges();
+
+      FindButtonByText(fixture, 'Delete selected').click();
+      fixture.detectChanges();
+
+      FindButtonByText(fixture, 'Delete runs').click();
+      tick(); // StartRunCleanup resolves
+      tick(); // first PollRunCleanup resolves (still in progress)
+      fixture.detectChanges();
+
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Deleting 0 of 2');
+
+      fakeWorkflowsGateway.PollRunCleanup.and.resolveTo({
+        done: 2,
+        total: 2,
+        completed: true,
+        succeededIds: [RUN_1.id, RUN_2.id],
+        failedIds: [],
+        permissionDenied: false,
+      });
+      tick(WORKFLOW_CLEANUP_POLL_INTERVAL_MS); // Delay fires, next PollRunCleanup resolves
+      fixture.detectChanges();
+
+      expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Delete 2 runs?');
     }),
   );
 

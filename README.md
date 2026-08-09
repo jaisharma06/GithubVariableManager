@@ -10,7 +10,7 @@ Managing GitHub Actions configuration is tedious by default: variables and secre
 
 This tool connects to GitHub with your own credentials and gives you one filterable, searchable list of everything in scope — with the ability to create, edit, and delete variables and secrets without leaving the page.
 
-**One real constraint shapes the UI, by design:** GitHub's API can return a *variable's* value, but it can **never** return a *secret's* value — secrets are write-only, encrypted client-side and never sent back by GitHub, at any level. This app is honest about that: variable values are visible (with a one-click "hide all" toggle before you screen-share), secret rows always show a locked, write-only state instead of a broken "reveal" button that could never work.
+**One real constraint shapes the UI, by design:** GitHub's API can return a *variable's* value, but it can **never** return a *secret's* value — secrets are write-only and never sent back by GitHub, at any level. A new secret's value is sealed (libsodium sealed-box encryption, server-side in `api/`) before it's ever written to GitHub. This app is honest about that: variable values are visible (with a one-click "hide all" toggle before you screen-share), secret rows always show a locked, write-only state instead of a broken "reveal" button that could never work.
 
 ## Features
 
@@ -22,51 +22,56 @@ This tool connects to GitHub with your own credentials and gives you one filtera
 - **Compare view** — a matrix of every name across whichever environments (and repo/org) you select, with inline edit, per-cell copy, and one-click "delete this from every scope it's in" with a warning listing exactly what's affected.
 - **Rename an environment** — GitHub has no rename API for environments, so this creates the new one, copies every variable's value across, and removes the old one (secrets can't be silently carried over — see below — so you're asked to re-add them and confirm before the old environment is deleted).
 - **Self-hosted runners at a glance** — a sidebar panel showing every runner assigned to the repo (or org), with live online/offline/busy status.
-- **Workflows and run history cleanup** — browse a repo's GitHub Actions workflows, see a workflow's latest 30 runs with live status, check off any subset of them (or "select all" for everything currently shown), and bulk-delete the selected run history in one confirmation (GitHub has no bulk-delete API, so this is one delete call per run, batched with progress shown). This is irreversible, and since it only clears run history rather than the workflow definition itself, GitHub may re-list the workflow again once it runs again if its YAML file is still in the repo — the confirmation dialog says so up front.
+- **Workflows and run history cleanup** — browse a repo's GitHub Actions workflows, see a workflow's latest 30 runs, which auto-refresh every few seconds while any of them are still in progress and stop updating once they've all finished (no manual refresh needed to watch a run to completion), check off any subset of them (or "select all" for everything currently shown), and bulk-delete the selected run history in one confirmation (GitHub has no bulk-delete API, so this is one delete call per run, batched with progress shown). This is irreversible, and since it only clears run history rather than the workflow definition itself, GitHub may re-list the workflow again once it runs again if its YAML file is still in the repo — the confirmation dialog says so up front.
 - **Org-secret visibility control** — choose whether a new organization secret is available to all repos, private repos only, or a hand-picked selection.
 - **Honest about secrets** — secret values are never fetched or displayed, because GitHub doesn't allow it; the UI explains why instead of pretending otherwise, everywhere that constraint matters (copy, rename, compare).
-- **Nothing persisted server-side** — no database; your token lives only in your browser's local storage, never on disk anywhere else and never sent anywhere except `api.github.com`.
+- **Nothing persisted server-side** — no database, in `client/` or `api/` alike; your token lives
+  only in your browser's local storage, never on disk anywhere else, and is only ever sent to this
+  app's own `api/` backend, which forwards it to GitHub per-request and never stores it.
 
 ## How it's built
 
-- **`client/`** — the application: Angular 19 + TypeScript, standalone components, Tailwind CSS, `@tanstack/angular-query-experimental` for data fetching/caching. Talks to `api.github.com` **directly from the browser** — GitHub's REST API supports CORS for authenticated requests, so there's no proxy for normal usage.
-- **`server/`** — a minimal Express server with exactly one job: relaying two OAuth *device flow* calls. `github.com`'s OAuth endpoints (unlike `api.github.com`) don't support CORS, so those two calls can't be made directly from the browser. Nothing else runs through this server — it never sees your GitHub token, and (unlike a classic OAuth setup) it doesn't hold a client secret either, since the device flow doesn't use one.
+- **`client/`** — the application: Angular 19 + TypeScript, standalone components, Tailwind CSS,
+  `@tanstack/angular-query-experimental` for data fetching/caching. Talks only to this app's own
+  `api/` backend — never directly to `api.github.com` or `github.com`. Every Gateway
+  (`core/gateways/I*Gateway.ts` + `Backend*Gateway.service.ts`) sends the user's token as an
+  `Authorization: Bearer` header on each request.
+- **`api/`** — an ASP.NET Core (.NET 9) backend that owns every GitHub API call (via Octokit.NET)
+  and all business/orchestration logic: variables, secrets, environments, runners, workflows,
+  org/repo scopes, and sign-in (personal-access-token viewer lookup and the OAuth *device flow*,
+  including relaying the two `github.com` OAuth endpoints that don't support CORS). Stateless — no
+  database, no session store: the token passes through on every request and is never persisted.
 
 ```
-┌──────────────┐   GitHub REST API (variables, secrets, repos…)   ┌──────────────┐
-│ client (SPA) │ ───────────────────────────────────────────────▶ │  api.github  │
-│  :4200       │                                                  │  .com        │
-│              │   device-flow code/token relay only              └──────────────┘
-│              │ ───────────────────────┐
-└──────────────┘                        ▼
-                                  ┌──────────────┐        ┌──────────────┐
-                                  │ server :8787 │ ─────▶  │ github.com   │
-                                  └──────────────┘        │ (OAuth)      │
-                                                           └──────────────┘
+┌──────────────┐   Authorization: Bearer <token>   ┌──────────────┐   Octokit.NET (same token)   ┌──────────────┐
+│ client (SPA) │ ─────────────────────────────────▶│  api :5080   │──────────────────────────────▶│ api.github   │
+│  :4200       │                                    │ (ASP.NET Core)│                                │ .com /       │
+└──────────────┘                                    └──────────────┘                                │ github.com   │
+                                                                                                       │ (OAuth)      │
+                                                                                                       └──────────────┘
 ```
+
+The browser never talks to GitHub directly — every request, including sign-in, goes through `api/`.
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 18 or later, and npm
+- [.NET SDK 9](https://dotnet.microsoft.com/download) (for `api/`)
 - A GitHub account with access to the org/repo(s) you want to manage
 
 ## Setup and running it
 
 ### 1. Install dependencies
 
-From the repository root (this is an npm workspace — one install covers `client` and `server`):
+From the repository root (this is an npm workspace — one install covers `client`; `api/` restores its own NuGet packages on first `dotnet build`/`dotnet run`):
 
 ```bash
 npm install
 ```
 
-### 2. Configure the server
+### 2. Configure the backend
 
-```bash
-cp server/.env.example server/.env
-```
-
-The defaults work as-is — no further configuration needed. Both login options (personal access token and "Continue with GitHub") work out of the box: the OAuth **Client ID** is baked into the server as a default, so there's nothing to register or paste in just to get started. (A client ID isn't sensitive — unlike a client secret, it's meant to be public, which is exactly why the device flow doesn't need a secret in the first place.)
+No configuration needed to get started. Both login options (personal access token and "Continue with GitHub") work out of the box: the OAuth **Client ID** is baked into `api/` as a default, so there's nothing to register or paste in just to get started. (A client ID isn't sensitive — unlike a client secret, it's meant to be public, which is exactly why the device flow doesn't need a secret in the first place.)
 
 ### 3. (Optional) Use your own OAuth App instead
 
@@ -75,15 +80,15 @@ If you'd rather have sign-in go through an OAuth App you control instead of the 
 1. Go to [github.com/settings/developers](https://github.com/settings/developers) → **New OAuth App**.
 2. Fill in any name/homepage URL you like — the callback URL field doesn't matter, it's not used.
 3. After creating it, open the app's settings and **enable "Device Flow"**. This is required — without it, sign-in will fail.
-4. Copy the **Client ID** into `server/.env`, overriding the default:
+4. Copy the **Client ID** into an environment variable for `api/`, overriding the default:
    ```
    GITHUB_OAUTH_CLIENT_ID=your_client_id_here
    ```
    No client secret is needed either way — the device flow never uses one.
 
-### 4. (Optional) Point the frontend at a different server port
+### 4. (Optional) Point the frontend at a different backend port
 
-Only needed if you changed the server's port above. Edit `client/src/environments/environment.ts`'s `oauthServerUrl` (and `environment.prod.ts`'s, if you'll also build for production).
+Only needed if you changed `api/`'s port. Edit `client/src/environments/environment.ts`'s `backendApiBaseUrl` (and `environment.prod.ts`'s, if you'll also build for production).
 
 ### 5. Run it
 
@@ -98,11 +103,27 @@ This starts both processes together:
 | Service | URL | Purpose |
 |---|---|---|
 | Client app (Angular) | http://localhost:4200 | The application UI |
-| Server | http://localhost:8787 | OAuth device-flow relay only |
+| `api/` (ASP.NET Core) | http://localhost:5080 | Every vertical: Auth, Scopes, Ledger (variables/secrets/environments), Runners, Workflows — `client/` talks to nothing else |
 
 Open **http://localhost:4200** in your browser.
 
-To run them individually: `npm run dev:client` or `npm run dev:server`.
+`api/` also serves interactive API docs (Swagger UI) at **http://localhost:5080/swagger** while
+running in Development — useful for exploring or exercising every route directly, without going
+through the Angular UI.
+
+To run them individually: `npm run dev:client` or `npm run dev:api`.
+
+**Verify it's actually working**, if you want to double-check before opening the browser (this is
+the exact check used to validate this section of the README against a real run — the API really
+does reach `github.com`, no credentials needed for this call):
+
+```bash
+curl http://localhost:5080/health                              # {"ok":true}
+curl -X POST http://localhost:5080/api/auth/github/device-code  # a real deviceCode/userCode from GitHub
+```
+
+If the second command doesn't return a real code, `api/` can't reach `github.com` — check your
+network/proxy/firewall before assuming the app itself is broken.
 
 ### 6. Build for production
 
@@ -110,8 +131,8 @@ To run them individually: `npm run dev:client` or `npm run dev:server`.
 npm run build -w client        # outputs to client/dist/client
 ```
 
-Serve the built files with any static file server; point it at the same `server/` instance (or
-your own deployment of it) for OAuth to keep working.
+Serve the built files with any static file server; point it at the same `api/` instance (or
+your own deployment of it) for sign-in to keep working.
 
 ## Using the app
 
@@ -119,7 +140,7 @@ your own deployment of it) for OAuth to keep working.
 
 You'll land on a connect screen with two tabs:
 
-- **Personal access token** — paste a token and click Connect. It needs the `repo` and `admin:org` scopes (classic token), or the equivalent **Variables** and **Secrets** permissions at both repository and organization level (fine-grained token), to read and write at every level. The token is held only in your browser's local storage — it's never written anywhere else on disk and never sent anywhere except `api.github.com`.
+- **Personal access token** — paste a token and click Connect. It needs the `repo` and `admin:org` scopes (classic token), or the equivalent **Variables** and **Secrets** permissions at both repository and organization level (fine-grained token), to read and write at every level. The token is held only in your browser's local storage — it's never written anywhere else on disk, and is only ever sent to this app's own `api/` backend (which forwards it straight through to GitHub per-request and never stores it).
 - **GitHub OAuth** — click Continue with GitHub, enter the short code shown at `github.com/login/device`, approve it, and you're in. Works immediately, no setup required.
 
 ### Pick a scope
@@ -139,10 +160,11 @@ GithubVariablesManager/
 ├── client/                     # The application
 │   └── src/app/
 │       ├── core/
-│       │   ├── gateways/         # Typed GitHub REST client (one Gateway interface + impl per
-│       │   │                     # resource: variables, secrets, environments, runners, scopes)
+│       │   ├── gateways/         # Typed client for api/ (one Gateway interface + impl per
+│       │   │                     # resource: variables, secrets, environments, runners, scopes,
+│       │   │                     # workflows, auth)
 │       │   ├── facades/          # Feature-facing state layer wrapping TanStack Angular Query
-│       │   ├── services/         # AuthService, SecretSealingService, RateLimitService, …
+│       │   ├── services/         # AuthService, RateLimitService, LastScopeService, …
 │       │   └── interceptors/     # Auth-header attach + 401 detection, rate-limit tracking
 │       ├── features/
 │       │   ├── auth/             # PAT + OAuth device-flow connect screen, route guard
@@ -153,9 +175,12 @@ GithubVariablesManager/
 │       │   ├── compare/          # Matrix view for comparing/editing across scopes
 │       │   └── workflows/        # Browse workflows, view runs, bulk-delete run history
 │       └── shared/components/    # Shared UI primitives (Button, KindBadge, ConfirmDialog, Avatar, …)
-├── server/                     # Express — OAuth device-flow relay only, no database
-│   └── src/
-│       └── routes/auth.ts        # The two relayed endpoints
+├── api/                        # ASP.NET Core (.NET 9) — the backend, owns all GitHub calls and business logic
+│   └── src/GithubVariablesManager.Api/
+│       ├── Auth/                 # Bearer-token pass-through, centralized permission-error classification
+│       ├── Endpoints/            # Route mapping, one file per resource
+│       ├── Services/             # Orchestration/business logic per resource
+│       └── GitHub/               # Octokit-based outbound client wrapper(s)
 ├── docs/                       # Architecture and coding standards
 └── archive/                    # Historical only — see archive/README.md; not required reading
 ```
@@ -167,19 +192,30 @@ See [`docs/`](./docs/) for how the app is built:
 ## Tech stack
 
 Angular 19 · TypeScript · Tailwind CSS · `@tanstack/angular-query-experimental` · Angular Router ·
-Express · libsodium-wrappers (client-side secret encryption, per GitHub's documented sealed-box
-scheme)
+ASP.NET Core (.NET 9) · Octokit.NET · `Sodium.Core` (server-side secret encryption, per GitHub's
+documented sealed-box scheme) · `Swashbuckle.AspNetCore` (Swagger/OpenAPI, dev-only)
 
-An **ASP.NET Core** backend is a possible future addition — the frontend already depends only on
-Gateway *interfaces* (see [`docs/Architecture.md`](./docs/Architecture.md#future-aspnet-core-seam))
-specifically so that would be a backend swap, not a frontend rewrite.
+**ASP.NET Core is this app's backend, in full.** Every GitHub API call (variables, secrets,
+environments, runners, workflows, org/repo scopes, sign-in) and every piece of orchestration logic
+(batch copy, delete-everywhere, environment rename, secret rename) is owned by `api/` —
+`client/` only renders what it returns and never talks to `api.github.com` directly. See
+[`docs/Architecture.md`](./docs/Architecture.md#the-aspnet-core-migration) for the full design and
+the vertical-by-vertical history of how it got there. The frontend still depends only on Gateway
+*interfaces* (`core/gateways/I*Gateway.ts`) — that seam is what made each vertical's cutover a
+backend swap behind an interface rather than a frontend rewrite, and would do the same for any
+future backend change.
 
 ## Security notes
 
-- Your GitHub token (PAT or OAuth) is held in `localStorage` in your browser only — it's never written anywhere else on disk and never sent to the local server. It persists until you click **Disconnect** or GitHub itself rejects the token (a `401`, e.g. after revoking it), at which point every open tab signs itself out automatically.
+- Your GitHub token (PAT or OAuth) is held in `localStorage` in your browser only — it's never
+  written anywhere else on disk. It's sent only to this app's own `api/` backend (never directly to
+  `api.github.com`), which forwards it straight through to GitHub per-request and never stores it
+  (no database, no session, no on-disk cache). It persists until you click **Disconnect** or GitHub
+  itself rejects the token (a `401`), at which point every open tab signs itself out automatically.
 - Secret **values** are never read back from GitHub, by GitHub's own design — this app can set/update/delete a secret, but can never display its current value. This also means a secret's value can't be silently copied to another scope or carried over when renaming an environment — those flows always ask you to re-enter the value, and say why.
-- The local server has no database and stores nothing between requests; it exists solely to work around `github.com`'s lack of CORS support for two OAuth endpoints.
-- The default OAuth Client ID baked into the server is tied to one shared OAuth App — everyone using the default will see that app's name on GitHub's consent screen. That's fine for an internal team tool; if you're distributing this more broadly, register your own OAuth App (step 3 above) so consent screens reflect your own identity instead.
+- `api/` has no database and stores nothing between requests — every GitHub call this app makes,
+  not just the two CORS-incompatible OAuth endpoints, is proxied through it.
+- The default OAuth Client ID baked into `api/` is tied to one shared OAuth App — everyone using the default will see that app's name on GitHub's consent screen. That's fine for an internal team tool; if you're distributing this more broadly, register your own OAuth App (step 3 above) so consent screens reflect your own identity instead.
 
 ## Working with AI coding agents
 
@@ -190,14 +226,25 @@ This repo is set up for agent-assisted development:
   project's conventions.
 - **[`docs/`](./docs/)** — `Architecture.md` and `CodingStandards.md`, described above. Written to
   be read by both humans and agents.
-- **Three project agents** under [`.claude/agents/`](./.claude/agents/), named after Justice League
+- **Four project agents** under [`.claude/agents/`](./.claude/agents/), named after Justice League
   members:
-  - **Batman** — the planner and codebase authority; read-only, produces plans and explains how
-    things work.
+  - **Batman** — the planner, codebase authority, and documentation owner. Read-only for source
+    code (produces plans, explains how things work) but is the only agent with write access to
+    documentation — after a feature/fix/UI change lands, Batman is invoked again to bring every
+    affected doc (this README, `CLAUDE.md`, `docs/*.md`, every folder `README.md`) in sync with
+    what actually got built, rather than leaving that to whichever agent happened to implement it.
   - **Superman** — implements features end-to-end, following this project's conventions; works from
     Batman's findings rather than exploring cold.
   - **Flash** — diagnoses and fixes bugs with the smallest correct change; also works from Batman's
     findings for anything non-trivial.
+  - **Green Lantern** — builds and reshapes the UI: component templates/styles, layout,
+    responsiveness, accessibility, visual polish. Doesn't make business/API decisions (those belong
+    to `api/`, per the constraint above) — a UI task that turns out to need one gets flagged back
+    rather than faked client-side.
+
+  All four treat a shared task board as a live status channel while they work — not just a
+  todo list — so what an agent is doing is visible before it finishes, not only in its final
+  report (see `CLAUDE.md`'s "How agents share progress while working" for the exact convention).
 
   These are plain project-level configuration (`.claude/agents/*.md`), not tied to any one
   interface — they work identically regardless of how Claude Code is invoked: the CLI directly,

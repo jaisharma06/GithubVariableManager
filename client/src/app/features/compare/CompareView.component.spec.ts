@@ -1,10 +1,14 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { LEDGER_GATEWAY } from '../../core/gateways/ILedgerGateway';
+import { OAUTH_GATEWAY } from '../../core/gateways/IOAuthGateway';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
 import { SECRETS_GATEWAY } from '../../core/gateways/ISecretsGateway';
 import { VARIABLES_GATEWAY } from '../../core/gateways/IVariablesGateway';
 import type { LedgerItem } from '../../core/Types';
 import {
   ClearFakeSession,
+  CreateFakeLedgerGateway,
+  CreateFakeOAuthGateway,
   CreateFakeScopesGateway,
   CreateFakeSecretsGateway,
   CreateFakeVariablesGateway,
@@ -54,11 +58,13 @@ describe('CompareViewComponent', () => {
   let fixture: ComponentFixture<CompareViewComponent>;
   let fakeVariablesGateway: ReturnType<typeof CreateFakeVariablesGateway>;
   let fakeSecretsGateway: ReturnType<typeof CreateFakeSecretsGateway>;
+  let fakeLedgerGateway: ReturnType<typeof CreateFakeLedgerGateway>;
 
   beforeEach(async () => {
     SeedFakeSession();
     fakeVariablesGateway = CreateFakeVariablesGateway();
     fakeSecretsGateway = CreateFakeSecretsGateway();
+    fakeLedgerGateway = CreateFakeLedgerGateway();
 
     await TestBed.configureTestingModule({
       imports: [CompareViewComponent],
@@ -67,6 +73,8 @@ describe('CompareViewComponent', () => {
         { provide: VARIABLES_GATEWAY, useValue: fakeVariablesGateway },
         { provide: SECRETS_GATEWAY, useValue: fakeSecretsGateway },
         { provide: SCOPES_GATEWAY, useValue: CreateFakeScopesGateway() },
+        { provide: OAUTH_GATEWAY, useValue: CreateFakeOAuthGateway() },
+        { provide: LEDGER_GATEWAY, useValue: fakeLedgerGateway },
       ],
     }).compileComponents();
 
@@ -177,7 +185,12 @@ describe('CompareViewComponent', () => {
   it(
     'deletes a row from every scope on confirm',
     fakeAsync(() => {
-      fakeVariablesGateway.DeleteVariable.and.resolveTo();
+      const targets = [
+        { level: 'organization' as const, scope: { org: 'acme-corp' }, label: 'Org · acme-corp' },
+        { level: 'repository' as const, scope: { org: 'acme-corp', repo: 'widgets' }, label: 'Repo · widgets' },
+        { level: 'environment' as const, scope: { org: 'acme-corp', repo: 'widgets', env: 'staging' }, label: 'staging' },
+      ];
+      fakeLedgerGateway.DeleteEverywhere.and.resolveTo(targets.map((target) => ({ target, ok: true })));
       const deleteButton = fixture.nativeElement.querySelector('[title*="every scope it\'s set in"]') as HTMLButtonElement;
       deleteButton.click();
       fixture.detectChanges();
@@ -189,13 +202,10 @@ describe('CompareViewComponent', () => {
       tick();
       fixture.detectChanges();
 
-      expect(fakeVariablesGateway.DeleteVariable).toHaveBeenCalledWith({ org: 'acme-corp' }, 'organization', 'API_URL');
-      expect(fakeVariablesGateway.DeleteVariable).toHaveBeenCalledWith({ org: 'acme-corp', repo: 'widgets' }, 'repository', 'API_URL');
-      expect(fakeVariablesGateway.DeleteVariable).toHaveBeenCalledWith(
-        { org: 'acme-corp', repo: 'widgets', env: 'staging' },
-        'environment',
-        'API_URL',
-      );
+      // DeleteEverywhereFacade.DeleteFrom -> ILedgerGateway.DeleteEverywhere is now one backend
+      // call fanning out over the full target list, replacing N separate DeleteVariable calls.
+      expect(fakeLedgerGateway.DeleteEverywhere).toHaveBeenCalledTimes(1);
+      expect(fakeLedgerGateway.DeleteEverywhere).toHaveBeenCalledWith('variable', 'API_URL', targets);
       expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Delete "API_URL" from all');
     }),
   );

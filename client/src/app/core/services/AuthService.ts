@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { SCOPES_GATEWAY, type IScopesGateway } from '../gateways/IScopesGateway';
+import { OAUTH_GATEWAY, type IOAuthGateway } from '../gateways/IOAuthGateway';
 import type { Viewer } from '../Types';
 
 export type AuthMethod = 'pat' | 'oauth';
@@ -22,7 +22,7 @@ const STORAGE_KEY = 'ghvm.session';
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly scopesGateway = inject<IScopesGateway>(SCOPES_GATEWAY);
+  private readonly oauthGateway = inject<IOAuthGateway>(OAUTH_GATEWAY);
   private readonly sessionSignal = signal<StoredSession | null>(ReadStoredSession());
 
   readonly token = computed(() => this.sessionSignal()?.token ?? null);
@@ -36,7 +36,7 @@ export class AuthService {
   }
 
   async ConnectWithToken(token: string, method: AuthMethod = 'pat'): Promise<void> {
-    const viewer = await this.scopesGateway.GetViewer(token);
+    const viewer = await this.oauthGateway.GetViewer(token);
     const next: StoredSession = { token, method, viewer };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     this.sessionSignal.set(next);

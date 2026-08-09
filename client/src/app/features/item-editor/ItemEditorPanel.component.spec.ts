@@ -1,10 +1,14 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { LEDGER_GATEWAY } from '../../core/gateways/ILedgerGateway';
+import { OAUTH_GATEWAY } from '../../core/gateways/IOAuthGateway';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
 import { SECRETS_GATEWAY } from '../../core/gateways/ISecretsGateway';
 import { VARIABLES_GATEWAY } from '../../core/gateways/IVariablesGateway';
 import type { LedgerItem } from '../../core/Types';
 import {
   ClearFakeSession,
+  CreateFakeLedgerGateway,
+  CreateFakeOAuthGateway,
   CreateFakeScopesGateway,
   CreateFakeSecretsGateway,
   CreateFakeVariablesGateway,
@@ -30,12 +34,14 @@ describe('ItemEditorPanelComponent', () => {
   let fakeVariablesGateway: ReturnType<typeof CreateFakeVariablesGateway>;
   let fakeSecretsGateway: ReturnType<typeof CreateFakeSecretsGateway>;
   let fakeScopesGateway: ReturnType<typeof CreateFakeScopesGateway>;
+  let fakeLedgerGateway: ReturnType<typeof CreateFakeLedgerGateway>;
 
   beforeEach(async () => {
     SeedFakeSession();
     fakeVariablesGateway = CreateFakeVariablesGateway();
     fakeSecretsGateway = CreateFakeSecretsGateway();
     fakeScopesGateway = CreateFakeScopesGateway();
+    fakeLedgerGateway = CreateFakeLedgerGateway();
 
     await TestBed.configureTestingModule({
       imports: [ItemEditorPanelComponent],
@@ -44,6 +50,8 @@ describe('ItemEditorPanelComponent', () => {
         { provide: VARIABLES_GATEWAY, useValue: fakeVariablesGateway },
         { provide: SECRETS_GATEWAY, useValue: fakeSecretsGateway },
         { provide: SCOPES_GATEWAY, useValue: fakeScopesGateway },
+        { provide: OAUTH_GATEWAY, useValue: CreateFakeOAuthGateway() },
+        { provide: LEDGER_GATEWAY, useValue: fakeLedgerGateway },
       ],
     }).compileComponents();
 
@@ -175,6 +183,9 @@ describe('ItemEditorPanelComponent', () => {
       fixture.componentRef.setInput('items', []);
       fixture.detectChanges();
       fakeVariablesGateway.CreateVariable.and.resolveTo();
+      fakeLedgerGateway.Copy.and.resolveTo([
+        { target: { level: 'environment', scope: { org: 'acme-corp', repo: 'widgets', env: 'staging' } }, ok: true },
+      ]);
 
       GetInput().value = 'NEW_VAR';
       GetInput().dispatchEvent(new Event('input'));
@@ -198,11 +209,15 @@ describe('ItemEditorPanelComponent', () => {
         'NEW_VAR',
         'hello',
       );
-      expect(fakeVariablesGateway.CreateVariable).toHaveBeenCalledWith(
-        { org: 'acme-corp', repo: 'widgets', env: 'staging' },
-        'environment',
+      // The replicate-to-environments path goes through CopyFacade.CopyTo -> ILedgerGateway.Copy,
+      // one backend call fanning out over every checked environment — only the main submission
+      // above still calls CreateVariable directly.
+      expect(fakeLedgerGateway.Copy).toHaveBeenCalledWith(
+        'variable',
         'NEW_VAR',
         'hello',
+        [{ level: 'environment', scope: { org: 'acme-corp', repo: 'widgets', env: 'staging' } }],
+        undefined,
       );
     }),
   );

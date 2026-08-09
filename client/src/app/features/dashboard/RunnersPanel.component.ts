@@ -19,7 +19,7 @@ export class RunnersPanelComponent {
 
   protected readonly noAccess = computed(() => {
     const err = this.runnersQuery.error();
-    return err instanceof GitHubApiError && (err.status === 403 || err.status === 404);
+    return err instanceof GitHubApiError && err.locked;
   });
   protected readonly errorMessage = computed(() => {
     const err = this.runnersQuery.error();

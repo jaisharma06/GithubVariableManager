@@ -1,7 +1,7 @@
 # GitHub Variables Manager — Angular
 
-This is the application. Root `npm run dev` runs this workspace (plus `server/`, the OAuth relay)
-— see the repo-root [`README.md`](../README.md) for setup, usage, and features.
+This is the application. Root `npm run dev` runs this workspace (plus `api/`, the ASP.NET Core
+backend) — see the repo-root [`README.md`](../README.md) for setup, usage, and features.
 
 ## What's here
 
@@ -14,7 +14,7 @@ src/app/
   core/
     gateways/       Typed GitHub REST client (one Gateway interface + impl per resource)
     facades/        Feature-facing state layer wrapping TanStack Angular Query
-    services/       AuthService, SecretSealingService, RateLimitService, LastScopeService
+    services/       AuthService, RateLimitService, LastScopeService
     interceptors/   AuthInterceptor, RateLimitInterceptor
     strategies/      Intentionally empty — see its own README.md
     Types.ts          Shared domain types

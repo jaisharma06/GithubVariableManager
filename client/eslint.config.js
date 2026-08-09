@@ -53,12 +53,12 @@ module.exports = tseslint.config(
           //   - Angular lifecycle hooks (ngOnInit, ngOnDestroy, ngOnChanges, ...)
           //   - RxJS's Observer interface (`next`/`error`/`complete`, e.g. in `tap({ next, error })`)
           //   - TanStack Query's options-object callbacks (queryFn, mutationFn, onMutate, onError,
-          //     onSuccess, onSettled, select) — used throughout core/facades/*.ts
+          //     onSuccess, onSettled, select, refetchInterval) — used throughout core/facades/*.ts
           //   - Angular Router's Route config (loadComponent, loadChildren, canActivate, canMatch,
           //     canDeactivate, resolve) — used in App.routes.ts
           filter: {
             regex:
-              "^(ng[A-Z].*|next|error|complete|queryFn|mutationFn|onMutate|onError|onSuccess|onSettled|select|loadComponent|loadChildren|canActivate|canActivateChild|canDeactivate|canMatch|resolve)$",
+              "^(ng[A-Z].*|next|error|complete|queryFn|mutationFn|onMutate|onError|onSuccess|onSettled|select|refetchInterval|loadComponent|loadChildren|canActivate|canActivateChild|canDeactivate|canMatch|resolve)$",
             match: false,
           },
         },

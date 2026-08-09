@@ -19,6 +19,7 @@ describe('OAuthDeviceFlowComponent', () => {
       'FetchOAuthClientId',
       'StartDeviceFlow',
       'PollDeviceToken',
+      'GetViewer',
     ]);
 
     await TestBed.configureTestingModule({

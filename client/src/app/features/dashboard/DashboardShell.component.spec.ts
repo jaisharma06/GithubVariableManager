@@ -2,6 +2,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { ENVIRONMENTS_GATEWAY } from '../../core/gateways/IEnvironmentsGateway';
+import { LEDGER_GATEWAY } from '../../core/gateways/ILedgerGateway';
+import { OAUTH_GATEWAY } from '../../core/gateways/IOAuthGateway';
 import { RUNNERS_GATEWAY } from '../../core/gateways/IRunnersGateway';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
 import { SECRETS_GATEWAY } from '../../core/gateways/ISecretsGateway';
@@ -10,6 +12,8 @@ import type { LedgerItem } from '../../core/Types';
 import {
   ClearFakeSession,
   CreateFakeEnvironmentsGateway,
+  CreateFakeLedgerGateway,
+  CreateFakeOAuthGateway,
   CreateFakeRunnersGateway,
   CreateFakeScopesGateway,
   CreateFakeSecretsGateway,
@@ -48,21 +52,19 @@ describe('DashboardShellComponent', () => {
     fakeScopesGateway.GetAccountType.and.resolveTo('Organization');
 
     const fakeVariablesGateway = CreateFakeVariablesGateway();
-    // Only the repository level returns the seeded variable(s) — resolving every level
-    // (organization/repository/each environment) to the same array would give the ledger
-    // duplicate item ids across scopes, which is neither realistic nor something the real
-    // gateway would ever do.
-    fakeVariablesGateway.ListVariables.and.callFake((_scope, level) =>
-      Promise.resolve(level === 'repository' ? (options.variables ?? []) : []),
-    );
     fakeVariablesGateway.DeleteVariable.and.resolveTo();
 
     const fakeSecretsGateway = CreateFakeSecretsGateway();
-    fakeSecretsGateway.ListSecrets.and.resolveTo([]);
+
+    const fakeLedgerGateway = CreateFakeLedgerGateway();
+    fakeLedgerGateway.GetLedger.and.resolveTo({
+      items: options.variables ?? [],
+      partialErrors: [],
+      lockedSections: [],
+    });
 
     const fakeRunnersGateway = CreateFakeRunnersGateway();
-    fakeRunnersGateway.ListRepoRunners.and.resolveTo([]);
-    fakeRunnersGateway.ListOrgRunners.and.resolveTo([]);
+    fakeRunnersGateway.ListRunners.and.resolveTo([]);
 
     await TestBed.configureTestingModule({
       imports: [DashboardShellComponent],
@@ -71,8 +73,10 @@ describe('DashboardShellComponent', () => {
         ProvideTestQueryClient(),
         { provide: ENVIRONMENTS_GATEWAY, useValue: fakeEnvironmentsGateway },
         { provide: SCOPES_GATEWAY, useValue: fakeScopesGateway },
+        { provide: OAUTH_GATEWAY, useValue: CreateFakeOAuthGateway() },
         { provide: VARIABLES_GATEWAY, useValue: fakeVariablesGateway },
         { provide: SECRETS_GATEWAY, useValue: fakeSecretsGateway },
+        { provide: LEDGER_GATEWAY, useValue: fakeLedgerGateway },
         { provide: RUNNERS_GATEWAY, useValue: fakeRunnersGateway },
         { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap(params)) } },
       ],

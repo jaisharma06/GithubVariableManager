@@ -1,9 +1,12 @@
 import { InjectionToken } from '@angular/core';
-import type { ItemLevel, LedgerItem, ScopeRef } from '../Types';
+import type { ItemLevel, ScopeRef } from '../Types';
 
-/** Port of web/src/api/variables.ts. */
+/**
+ * Variables CRUD against the `api/` ASP.NET Core backend's Ledger vertical. `ListVariables` was
+ * dropped once `LedgerFacade` moved to `ILedgerGateway`'s merged read (`ILedgerGateway.ts`) —
+ * this interface now only covers the mutations.
+ */
 export interface IVariablesGateway {
-  ListVariables(scope: ScopeRef, level: ItemLevel): Promise<LedgerItem[]>;
   CreateVariable(scope: ScopeRef, level: ItemLevel, name: string, value: string): Promise<void>;
   /**
    * `currentName` selects the variable being updated (the URL); `newName` is what GitHub

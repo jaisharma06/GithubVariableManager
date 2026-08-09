@@ -1,7 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { OAUTH_GATEWAY } from '../../core/gateways/IOAuthGateway';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
-import { CreateFakeScopesGateway, ProvideTestQueryClient } from '../../core/testing/TestDoubles';
+import { CreateFakeOAuthGateway, CreateFakeScopesGateway, ProvideTestQueryClient } from '../../core/testing/TestDoubles';
 import { WaitFor } from '../../core/testing/WaitFor';
 import { ScopePickerComponent } from './ScopePicker.component';
 
@@ -26,7 +27,12 @@ describe('ScopePickerComponent', () => {
 
     await TestBed.configureTestingModule({
       imports: [ScopePickerComponent],
-      providers: [provideRouter([]), ProvideTestQueryClient(), { provide: SCOPES_GATEWAY, useValue: fakeScopesGateway }],
+      providers: [
+        provideRouter([]),
+        ProvideTestQueryClient(),
+        { provide: SCOPES_GATEWAY, useValue: fakeScopesGateway },
+        { provide: OAUTH_GATEWAY, useValue: CreateFakeOAuthGateway() },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ScopePickerComponent);

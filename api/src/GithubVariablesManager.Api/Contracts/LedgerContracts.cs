@@ -1,0 +1,79 @@
+namespace GithubVariablesManager.Api.Contracts;
+
+// Level/Kind stay plain strings deliberately (not C# enums) — a C# enum would default to
+// PascalCase on the wire, breaking parity with client/'s TS string unions without extra converter
+// config.
+
+public sealed record LedgerItemResponse(
+    string Kind,              // "variable" | "secret"
+    string Level,              // "organization" | "repository" | "environment"
+    string Org,
+    string? Repo,
+    string? Env,
+    string Name,
+    string? Value,             // present only for variables; always null for secrets (write-only constraint)
+    string? Visibility,        // secrets only, org-level ("all" | "private" | "selected") — populated for org-level secrets from GitHub's read response; unaffected by write orchestration
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+public sealed record LedgerPartialErrorResponse(string Label, string Message);
+public sealed record LedgerLockedSectionResponse(string Level, string Kind, string ScopeLabel, string? Env);
+
+public sealed record LedgerResponse(
+    IReadOnlyList<LedgerItemResponse> Items,
+    IReadOnlyList<LedgerPartialErrorResponse> PartialErrors,
+    IReadOnlyList<LedgerLockedSectionResponse> LockedSections);
+
+public sealed record CreateVariableRequest(string Org, string? Repo, string? Env, string Level, string Name, string Value);
+public sealed record RenameVariableRequest(string Org, string? Repo, string? Env, string Level, string CurrentName, string NewName, string Value);
+
+public sealed record PutSecretRequest(string Org, string? Repo, string? Env, string Level, string Name, string Value, string? Visibility, IReadOnlyList<long>? SelectedRepositoryIds);
+public sealed record RenameSecretRequest(string Org, string? Repo, string? Env, string Level, string CurrentName, string NewName, string Value, string? Visibility, IReadOnlyList<long>? SelectedRepositoryIds);
+public sealed record RenameSecretResponse(bool DeleteSucceeded, string? DeleteError);
+
+/// <summary>Mirrors <c>client/src/app/core/Types.ts</c>'s <c>GithubEnvironment</c> shape — wire-exposed directly via <c>GET /api/ledger/environments</c>, same as <c>ScopesService</c>'s Contracts/ types.</summary>
+public sealed record EnvironmentResponse(string Name, long Id);
+
+public sealed record CreateEnvironmentRequest(string Org, string Repo, string Name);
+
+/// <summary>
+/// GitHub has no rename API for environments — this is create-new, copy every environment-level
+/// variable's value across, then conditionally delete-old, done server-side in one call now
+/// instead of three sequential client-side mutations. See
+/// <see cref="Services.EnvironmentRenameService"/>'s doc comment for the full outcome-reporting
+/// design.
+/// </summary>
+public sealed record RenameEnvironmentRequest(string Org, string Repo, string OldName, string NewName, bool DeleteOldAnyway);
+
+public sealed record VariableCopyFailureResponse(string Name, string Error);
+
+public sealed record RenameEnvironmentResponse(
+    string? ListVariablesError,
+    int VariablesCopied,
+    IReadOnlyList<VariableCopyFailureResponse> VariableCopyFailures,
+    bool OldEnvironmentDeleted,
+    string? OldEnvironmentDeleteError);
+
+/// <summary>
+/// Batch orchestration (Phase 6) — <see cref="Services.CopyService"/>/
+/// <see cref="Services.DeleteEverywhereService"/> fan out a single-item mutation over a caller-supplied
+/// target list server-side, replacing what used to be N sequential/`Promise.allSettled`-driven client-side
+/// calls in `CopyFacade.CopyTo`/`DeleteEverywhereFacade.DeleteFrom`.
+/// </summary>
+public sealed record LedgerScopeTargetRequest(string Org, string? Repo, string? Env, string Level);
+public sealed record LedgerScopeTargetResponse(string Org, string? Repo, string? Env, string Level);
+
+public sealed record CopyRequest(
+    string Kind,                                   // "variable" | "secret"
+    string Name,
+    string Value,
+    string? Visibility,                            // secrets only, mirrors PutSecretRequest
+    IReadOnlyList<long>? SelectedRepositoryIds,      // secrets only
+    IReadOnlyList<LedgerScopeTargetRequest> Targets);
+
+public sealed record CopyTargetResult(LedgerScopeTargetResponse Target, bool Ok, string? Message);
+public sealed record CopyResponse(IReadOnlyList<CopyTargetResult> Results);
+
+public sealed record DeleteEverywhereRequest(string Kind, string Name, IReadOnlyList<LedgerScopeTargetRequest> Targets);
+public sealed record DeleteEverywhereTargetResult(LedgerScopeTargetResponse Target, bool Ok, string? Message);
+public sealed record DeleteEverywhereResponse(IReadOnlyList<DeleteEverywhereTargetResult> Results);

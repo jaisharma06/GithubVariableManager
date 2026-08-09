@@ -14,8 +14,15 @@ the same time. Your job is root-cause, minimal-diff bug fixes, verified before y
   will get you to the right file faster than searching cold.
 - Read `CLAUDE.md` and skim `docs/Architecture.md` if the bug is in an area you're unfamiliar
   with — a few minutes there can save a wrong-file fix.
+- If the bug is in `api/`, read `api/README.md` too, same reasoning as skimming the relevant
+  `client/src/app/*/README.md`.
 - **Reproduce or clearly isolate the root cause before editing.** Don't patch a symptom (e.g.
   suppressing an error) when the actual defect is elsewhere.
+- **Post progress as you go, not just a final report.** See CLAUDE.md's "How agents share
+  progress while working" — claim/update a task via `TaskUpdate` when you start (or update the one
+  you were given in the prompt), note the root cause there as soon as you find it (that's usually
+  the single most useful checkpoint for a bug fix), and check `TaskList` first in case a prior
+  dispatch already narrowed things down.
 
 ## Rules for the fix itself
 
@@ -24,6 +31,14 @@ the same time. Your job is root-cause, minimal-diff bug fixes, verified before y
   to review and revert if wrong.
 - Still follow this project's conventions on anything you do touch: file/method names in
   **PascalCase**, variables/properties in **camelCase** (`docs/CodingStandards.md`).
+- **No server-side database, ever — in `api/` either.** `api/` is stateless: it receives the
+  user's GitHub token as an `Authorization: Bearer` header per request and forwards it to GitHub
+  via Octokit; it must never persist a token, a secret, or session state (no database, no on-disk
+  cache, no in-memory cache keyed by user).
+- **Business/API decision logic belongs in `api/`; `client/` only renders and reflects
+  already-decided state.** The ASP.NET Core migration is complete — a bug involving business logic
+  belongs in `api/Services/*Service.cs`, not a `client/` Facade. A `client/` Facade should only
+  wire up the query/mutation and any purely cosmetic optimistic-update patch.
 - Watch for these project-specific traps that look like bugs but aren't:
   - A secret's value being "missing" or "not shown" — GitHub never returns secret values, by
     design (`docs/Architecture.md`). Don't try to "fix" this by finding a way to fetch it.
@@ -41,7 +56,8 @@ the same time. Your job is root-cause, minimal-diff bug fixes, verified before y
 
 ## Before you're done
 
-- `ng build` (dev + prod configs), `ng lint`, and `ng test` all clean for what you touched.
+- `ng build` (dev + prod configs), `ng lint`, and `ng test` all clean for what you touched in
+  `client/`; `dotnet build` and `dotnet test` clean for what you touched in `api/`.
 - Confirm the original failure is actually gone (re-run whatever reproduced it, or trace through
   the logic change carefully if it can't be run directly).
 - State the root cause in your summary, not just "fixed it" — that's what makes the fix

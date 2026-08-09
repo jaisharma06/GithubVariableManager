@@ -18,32 +18,84 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
 - **`EnvironmentsFacade.ts`** — `EnvironmentsQuery(org, repo)` (method, same reasoning as above);
   `createEnvironment`/`deleteEnvironment` are shared `injectMutation` fields (mutations are safe as
   fields — they don't fetch anything until `.mutate()`/`.mutateAsync()` is actually called) with
-  optimistic updates against the `['environments', token, org, repo]` cache key.
+  optimistic updates against the `['environments', token, org, repo]` cache key. `renameEnvironment`
+  (Phase 3c) is one `IEnvironmentsGateway.RenameEnvironment` call now rather than three sequential
+  mutations (create env -> copy each variable via `CopyFacade` -> delete old env), since that
+  orchestration moved server-side (`api/Services/EnvironmentRenameService.cs`). Deliberately no
+  optimistic `onMutate` patch here, unlike `createEnvironment`/`deleteEnvironment` — hand-rolling an
+  equivalent multi-item optimistic patch (a new environment appearing, N variables appearing under
+  it, the old environment disappearing, all from one mutation) is high-risk for low payoff. Instead
+  its `onSuccess` invalidates both the `['environments', …]` and `['ledger']` queries, mirroring
+  `ItemMutationsFacade.renameSecret`'s `onSuccess` invalidation from Phase 3b exactly and accepting
+  a brief refetch flicker as an honest tradeoff.
 - **`RunnersFacade.ts`** — `RunnersQuery(scope)`, `refetchInterval: 30_000`, `enabled: !!token &&
-  !!scope()`.
-- **`LedgerFacade.ts`** — `LedgerQuery(scope)`. Internally composes `EnvironmentsFacade`'s and
-  `ScopesFacade`'s queries — `DashboardShellComponent` doesn't need to know that building the
-  ledger requires knowing the environment list and account type first — builds the list of
-  org/repo/environment-level `LedgerJob`s, and runs them via `RunLedgerJobs` from
-  `LedgerSupport.ts`.
+  !!scope()`. As of Phase 4 (the ASP.NET Core migration's Runners vertical), this Facade no longer
+  branches on `scope().repo` to pick between `ListRepoRunners`/`ListOrgRunners` — it just forwards
+  `org`/`repo` to `IRunnersGateway`'s single `ListRunners` method, since that branching moved
+  server-side (`api/Services/RunnersService.cs`).
+- **`LedgerFacade.ts`** — `LedgerQuery(scope)`. As of Phase 3a (the ASP.NET Core migration's
+  Ledger vertical), this is a thin wrapper around one `injectQuery` calling
+  `ILedgerGateway.GetLedger` — the variables/secrets/environment fan-out and locked-section
+  classification that used to be assembled here (composing `EnvironmentsFacade`/`ScopesFacade`
+  internally, running `LedgerJob`s via `RunLedgerJobs`) now lives server-side in
+  `api/Services/LedgerService.cs`. `DashboardShellComponent` still queries `EnvironmentsFacade`/
+  `ScopesFacade` directly for its own needs (the sidebar's environment list, the header's
+  `showOrgLevel`) — that usage is unrelated to this Facade and unaffected by the shrink.
 - **`ItemMutationsFacade.ts`** — six `injectMutation` fields: `createVariable`, `updateVariable`,
   `deleteVariable`, `putSecret`, `renameSecret`, `deleteSecret`. Each has `onMutate`/`onError` doing
   an optimistic patch of the ledger cache (via private `SnapshotLedger`/`RestoreLedger`/
-  `UpdateLedgerItems` helpers using `injectQueryClient()`) and a rollback on failure.
-- **`CopyFacade.ts`** — `CopyTo(kind, name, value, targets, options)`, composing
-  `ItemMutationsFacade`'s per-item mutations via `Promise.allSettled`; `isPending` is a
-  `computed()` signal.
-- **`LedgerSupport.ts`** — pure functions shared by `LedgerFacade`/`ItemMutationsFacade`:
-  `SameScope`, `ErrorMessage`, `OptimisticVariable`, `OptimisticSecret`, `RunLedgerJobs`,
-  `JobLabel`; plus the `LedgerPartialError`/`LedgerLockedSection`/`LedgerResult`/`LedgerJob` types.
-  Pulled out as free functions (not facade methods) because both facades need them and neither
-  should depend on the other for pure data-shaping logic.
-- **`DeleteEverywhereFacade.ts`** — `DeleteFrom(kind, name, targets)`, composing
-  `ItemMutationsFacade.deleteVariable`/`deleteSecret` via `Promise.allSettled`, mirroring
-  `CopyFacade`'s shape exactly (same batching pattern, same reuse of `ItemMutationsFacade` rather
-  than calling gateways directly). Used only by `CompareViewComponent`'s row-delete — a `LedgerRow`
-  deletes from one scope via `ItemMutationsFacade` directly, while a compare-view row deletes a
-  name from *every* scope it's set in, which is what this Facade exists to batch.
+  `UpdateLedgerItems` helpers using `injectQueryClient()`) and a rollback on failure. `renameSecret`
+  (Phase 3b) is one `ISecretsGateway.RenameSecret` call now rather than a sequential
+  `PutSecret`-then-`DeleteSecret`, since that orchestration (plus the sealing it needs) moved
+  server-side; it also has an `onSuccess` handler (the other mutations don't need one) that
+  invalidates the `['ledger']` query when the backend reports `deleteSucceeded: false` — the old
+  name genuinely still exists on GitHub in that case, so the optimistic "clean rename" patch from
+  `onMutate` would otherwise be silently wrong until the next unrelated refetch. (Phase 6 removed
+  the seventh field, `upsertVariable` — it existed only for `CopyFacade.CopyTo`'s old client-side
+  variable branch, which now calls `ILedgerGateway.Copy` directly instead; see the `CopyFacade.ts`
+  entry below.)
+- **`CopyFacade.ts`** — `CopyTo(kind, name, value, targets, options)`. As of Phase 6, one
+  `ILedgerGateway.Copy` call, fanned out server-side (`Services/CopyService.cs`) over every target,
+  rather than a client-side `Promise.allSettled` composing `ItemMutationsFacade`'s per-item
+  mutations — this drops the `ItemMutationsFacade` dependency entirely. Wraps the call in its own
+  `injectMutation` field so `isPending` is a real TanStack signal (`this.copy.isPending`) rather
+  than an OR of unrelated mutations' pending states. Deliberately no optimistic `onMutate` patch;
+  `onSuccess` invalidates the `['ledger']` query instead, the same tradeoff
+  `EnvironmentsFacade.renameEnvironment` already made in Phase 3c when its 3-step client sequence
+  collapsed to one backend call — hand-rolling an equivalent multi-target optimistic patch is
+  high-risk for low payoff, so a brief refetch flicker is accepted as an honest tradeoff.
+- **`LedgerSupport.ts`** — pure functions shared by `ItemMutationsFacade` (and the response-shaping
+  types `ILedgerGateway`/`BackendLedgerGateway.service.ts` consume): `SameScope`, `ErrorMessage`,
+  `OptimisticVariable`, `OptimisticSecret`; plus the `LedgerPartialError`/`LedgerLockedSection`/
+  `LedgerResult` types. `RunLedgerJobs`/`JobLabel`/`LedgerJob` (the client-side fan-out) were
+  deleted once that logic moved server-side — see `LedgerFacade.ts` above.
+- **`WorkflowsFacade.ts`** — `WorkflowsQuery(org, repo)`/`WorkflowRunsQuery(org, repo, workflowId)`
+  (methods, same reasoning as `ScopesFacade`/`EnvironmentsFacade` above); `deleteWorkflowRun` is a
+  shared `injectMutation` field for a single run. `WorkflowRunsQuery` polls conditionally —
+  `refetchInterval: (query) => AllRunsSettled(query.state.data) ? false : WORKFLOW_RUNS_POLL_INTERVAL_MS`
+  (5s) — re-fetching while any displayed run is still in flight and stopping entirely once every
+  visible run has reached `status === 'completed'`, unlike `RunnersFacade`'s unconditional 30s poll
+  above (a runner's online/offline/busy status never settles the way a run's terminal state does, so
+  the same "poll forever" approach would just be wasted calls here). `AllRunsSettled` is exported and
+  directly unit-tested (`WorkflowsFacade.spec.ts`) as the one piece of real decision logic in the
+  poll. `WorkflowsQuery` (the workflow list itself) is not polled. `DeleteRuns(org, repo, workflowId, runIds,
+  onProgress?)` bulk-deletes a caller-chosen set of a workflow's runs — as of Phase 5 (the ASP.NET
+  Core migration's Workflows vertical), this shrank from its own client-side chunking
+  (`DELETE_CHUNK_SIZE`, one `DeleteWorkflowRun` call per run via sequential `Promise.allSettled`
+  chunks, plus a local `.status === 403` permission check) to a plain start+poll loop:
+  `IWorkflowsGateway.StartRunCleanup` kicks off the job, then `PollRunCleanup` is awaited
+  repeatedly (with a `Delay` helper between polls — no shared delay utility existed in this
+  codebase) until the backend reports it complete, forwarding each poll's `done`/`total` to
+  `onProgress` and returning the backend's own `succeededIds`/`failedIds`/`permissionDenied`
+  classification. The chunked fan-out and permission classification now live server-side
+  (`api/Services/WorkflowRunCleanupService.cs`, `Auth/PermissionErrorClassifier.cs`).
+- **`DeleteEverywhereFacade.ts`** — `DeleteFrom(kind, name, targets)`. Structural twin of
+  `CopyFacade`'s Phase 6 rewrite: one `ILedgerGateway.DeleteEverywhere` call, fanned out
+  server-side (`Services/DeleteEverywhereService.cs`) over every target, same dropped-
+  `ItemMutationsFacade`-dependency and dropped-optimistic-update tradeoff as `CopyFacade` (see its
+  entry above). Used only by `CompareViewComponent`'s row-delete — a `LedgerRow` deletes from one
+  scope via `ItemMutationsFacade` directly, while a compare-view row deletes a name from *every*
+  scope it's set in, which is what this Facade exists to batch.
 - **`CopySupport.ts`** — `CopyTarget`, `CopyResult`, `DeleteEverywhereTarget`,
   `DeleteEverywhereResult` types shared between `CopyFacade` and `DeleteEverywhereFacade`.
 
@@ -56,8 +108,3 @@ in a component/service constructor or field initializer). Only use a shared fiel
 every consumer of the facade always wants unconditionally — none of the queries here qualify, which
 is why every query in this folder is a method and only mutations are fields.
 
-## Why `LedgerFacade` composes `EnvironmentsFacade`/`ScopesFacade` internally
-
-Keeping that composition inside `LedgerFacade` (not pushed up into the component) keeps the
-component itself a thin presentation layer, consistent with this project's Facade pattern
-rationale in `docs/Architecture.md`.

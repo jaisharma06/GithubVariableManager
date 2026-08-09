@@ -156,7 +156,7 @@ export class CopyItemDialogComponent implements OnInit, AfterViewInit {
     const candidates = this.candidates();
     const targets = candidates
       .filter((c) => selected.has(c.key))
-      .map((c) => ({ level: c.level, scope: c.scope, exists: !!c.existing }));
+      .map((c) => ({ level: c.level, scope: c.scope }));
 
     const item = this.item();
     const outcome = await this.copyFacade.CopyTo(item.kind, item.name, value, targets);

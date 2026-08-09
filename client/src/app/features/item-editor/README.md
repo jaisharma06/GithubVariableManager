@@ -8,7 +8,11 @@
     set — used when the target scope+name is already decided, e.g. from a compare-view cell).
   - Name-pattern validation and the secret-rename note (GitHub can't rename a secret in place — a
     "rename" is create-under-new-name-then-delete, same as `RenameEnvironmentDialogComponent`'s
-    environment-level version of the same constraint).
+    environment-level version of the same constraint). As of Phase 3b the backend can report that
+    a rename partially succeeded (new name created, but the old name's delete failed — there's no
+    GitHub API making the two-step rename transactional); `HandleSubmit` surfaces that via
+    `renameDeleteWarning`, reusing the same warning-banner shape as `replicateFailures` below
+    rather than inventing new UI for a second kind of partial-failure outcome.
   - "Also create in other environments" replicate checkboxes at creation time, via `CopyFacade`.
   - The org-level secret visibility picker (all/private/selected repositories), backed by
     `ScopesFacade.OrgReposQuery` — only fetches once "Selected repositories" is actually chosen
@@ -29,8 +33,10 @@
 
 ## Testing notes
 
-Needs `ProvideTestQueryClient()`, fake `VARIABLES_GATEWAY`/`SECRETS_GATEWAY`/`SCOPES_GATEWAY`
-providers, and `SeedFakeSession()`/`ClearFakeSession()` — `ScopesFacade.OrgReposQuery` is a real
-query. Mutation-driven assertions (create/update/replicate) use `fakeAsync()` + `tick()`; the
+Needs `ProvideTestQueryClient()`, fake `VARIABLES_GATEWAY`/`SECRETS_GATEWAY`/`SCOPES_GATEWAY`/
+`OAUTH_GATEWAY`/`LEDGER_GATEWAY` providers, and `SeedFakeSession()`/`ClearFakeSession()` —
+`ScopesFacade.OrgReposQuery` is a real query, and `LEDGER_GATEWAY` (`CreateFakeLedgerGateway()`)
+backs `CopyFacade`'s Phase 6 single `Copy` call for the replicate-to-environments path. Mutation-
+driven assertions (create/update/replicate) use `fakeAsync()` + `tick()`; the
 org-repos-on-selected-visibility assertion is the one real query path in this component and uses
 `WaitFor()` instead. See `core/testing/README.md` for why the two patterns aren't interchangeable.

@@ -7,19 +7,21 @@ import { AuthInterceptor } from './core/interceptors/AuthInterceptor';
 import { RateLimitInterceptor } from './core/interceptors/RateLimitInterceptor';
 
 import { ENVIRONMENTS_GATEWAY } from './core/gateways/IEnvironmentsGateway';
-import { GithubEnvironmentsGateway } from './core/gateways/GithubEnvironmentsGateway.service';
+import { BackendEnvironmentsGateway } from './core/gateways/BackendEnvironmentsGateway.service';
+import { LEDGER_GATEWAY } from './core/gateways/ILedgerGateway';
+import { BackendLedgerGateway } from './core/gateways/BackendLedgerGateway.service';
 import { OAUTH_GATEWAY } from './core/gateways/IOAuthGateway';
-import { LocalOAuthGateway } from './core/gateways/LocalOAuthGateway.service';
+import { BackendOAuthGateway } from './core/gateways/BackendOAuthGateway.service';
 import { RUNNERS_GATEWAY } from './core/gateways/IRunnersGateway';
-import { GithubRunnersGateway } from './core/gateways/GithubRunnersGateway.service';
+import { BackendRunnersGateway } from './core/gateways/BackendRunnersGateway.service';
 import { SCOPES_GATEWAY } from './core/gateways/IScopesGateway';
-import { GithubScopesGateway } from './core/gateways/GithubScopesGateway.service';
+import { BackendScopesGateway } from './core/gateways/BackendScopesGateway.service';
 import { SECRETS_GATEWAY } from './core/gateways/ISecretsGateway';
-import { GithubSecretsGateway } from './core/gateways/GithubSecretsGateway.service';
+import { BackendSecretsGateway } from './core/gateways/BackendSecretsGateway.service';
 import { VARIABLES_GATEWAY } from './core/gateways/IVariablesGateway';
-import { GithubVariablesGateway } from './core/gateways/GithubVariablesGateway.service';
+import { BackendVariablesGateway } from './core/gateways/BackendVariablesGateway.service';
 import { WORKFLOWS_GATEWAY } from './core/gateways/IWorkflowsGateway';
-import { GithubWorkflowsGateway } from './core/gateways/GithubWorkflowsGateway.service';
+import { BackendWorkflowsGateway } from './core/gateways/BackendWorkflowsGateway.service';
 
 import { routes } from './App.routes';
 
@@ -44,15 +46,17 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withInterceptors([AuthInterceptor, RateLimitInterceptor])),
 
     // Every Facade/Component depends on the *interface* (the token on the left), never the
-    // concrete class on the right — this is the entire seam a future ASP.NET Core backend swap
-    // goes through (see docs/Architecture.md's Gateway/Adapter pattern section): swap the
-    // `useClass` here, change nothing else in the app.
-    { provide: VARIABLES_GATEWAY, useClass: GithubVariablesGateway },
-    { provide: SECRETS_GATEWAY, useClass: GithubSecretsGateway },
-    { provide: ENVIRONMENTS_GATEWAY, useClass: GithubEnvironmentsGateway },
-    { provide: RUNNERS_GATEWAY, useClass: GithubRunnersGateway },
-    { provide: SCOPES_GATEWAY, useClass: GithubScopesGateway },
-    { provide: OAUTH_GATEWAY, useClass: LocalOAuthGateway },
-    { provide: WORKFLOWS_GATEWAY, useClass: GithubWorkflowsGateway },
+    // concrete class on the right — this is the exact seam every ASP.NET Core backend swap went
+    // through, one resource at a time (see docs/Architecture.md's Gateway/Adapter pattern
+    // section), and would go through again for any future backend change: swap the `useClass`
+    // here, change nothing else in the app.
+    { provide: VARIABLES_GATEWAY, useClass: BackendVariablesGateway },
+    { provide: LEDGER_GATEWAY, useClass: BackendLedgerGateway },
+    { provide: SECRETS_GATEWAY, useClass: BackendSecretsGateway },
+    { provide: ENVIRONMENTS_GATEWAY, useClass: BackendEnvironmentsGateway },
+    { provide: RUNNERS_GATEWAY, useClass: BackendRunnersGateway },
+    { provide: SCOPES_GATEWAY, useClass: BackendScopesGateway },
+    { provide: OAUTH_GATEWAY, useClass: BackendOAuthGateway },
+    { provide: WORKFLOWS_GATEWAY, useClass: BackendWorkflowsGateway },
   ],
 };

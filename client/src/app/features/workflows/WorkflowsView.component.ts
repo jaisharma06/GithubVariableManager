@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { GitHubApiError } from '../../core/gateways/GitHubApiError';
 import { WorkflowsFacade } from '../../core/facades/WorkflowsFacade';
 import type { GithubWorkflow, WorkflowRun } from '../../core/Types';
@@ -14,7 +14,7 @@ const STATE_LABELS: Record<GithubWorkflow['state'], string> = {
 };
 
 function PermissionAwareMessage(err: unknown): string {
-  if (err instanceof GitHubApiError && err.status === 403) {
+  if (err instanceof GitHubApiError && err.locked) {
     return 'GitHub rejected this — deleting workflow runs requires write access to this repository.';
   }
   return err instanceof Error ? err.message : 'GitHub rejected this request.';
@@ -110,6 +110,19 @@ export class WorkflowsViewComponent {
     } finally {
       this.deletingRunId.set(null);
     }
+  }
+
+  constructor() {
+    // A poll can change the visible run list out from under a checked selection (e.g. a run drops
+    // off the page, or GitHub returns it under a new id) — prune selectedRunIds down to ids still
+    // present so "Delete N runs?" always matches what's actually still checked on screen.
+    effect(() => {
+      const currentIds = new Set(this.runs().map((r) => r.id));
+      this.selectedRunIds.update((prev) => {
+        const pruned = new Set([...prev].filter((id) => currentIds.has(id)));
+        return pruned.size === prev.size ? prev : pruned;
+      });
+    });
   }
 
   protected HandleToggleRun(runId: number): void {

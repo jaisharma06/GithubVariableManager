@@ -1,7 +1,6 @@
 import { AfterViewInit, Component, ElementRef, HostListener, OnInit, ViewChild, computed, inject, input, output, signal } from '@angular/core';
-import { CopyFacade } from '../../core/facades/CopyFacade';
 import { EnvironmentsFacade } from '../../core/facades/EnvironmentsFacade';
-import type { GithubEnvironment, LedgerItem, ScopeRef } from '../../core/Types';
+import type { LedgerItem } from '../../core/Types';
 import { ButtonComponent } from '../../shared/components/Button.component';
 
 export interface EnvironmentRenamedEvent {
@@ -15,6 +14,16 @@ const NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
  * Port of web/src/features/dashboard/RenameEnvironmentDialog.tsx. The new-name field is focused
  * programmatically in ngAfterViewInit rather than via `autofocus` — same reasoning as
  * ScopePickerComponent's doc comment.
+ *
+ * As of Phase 3c, the create-new-environment -> copy-variables -> conditionally-delete-old-one
+ * orchestration this dialog used to drive step-by-step (3 separate mutation calls, one dialog-owned
+ * `step` signal to track which) is one backend call
+ * (`EnvironmentsFacade.renameEnvironment` -> `api/Services/EnvironmentRenameService.cs`). This
+ * component now only collects the new name, does the same zero-round-trip format checks it always
+ * did client-side (non-empty / pattern / not-same-as-old — cheap, static, arguably not "business
+ * logic"), and reports whatever outcome the backend returns. The "already in use" duplicate check
+ * moved server-side (it needs live GitHub state), surfaced through the existing `catch` handler as
+ * a plain error message — same as any other validation failure this dialog already displayed.
  */
 @Component({
   selector: 'app-rename-environment-dialog',
@@ -25,7 +34,6 @@ export class RenameEnvironmentDialogComponent implements OnInit, AfterViewInit {
   readonly org = input.required<string>();
   readonly repo = input.required<string>();
   readonly oldName = input.required<string>();
-  readonly environments = input<GithubEnvironment[]>([]);
   /** The full ledger — used to find what's currently set in this environment. */
   readonly items = input<LedgerItem[]>([]);
 
@@ -33,7 +41,6 @@ export class RenameEnvironmentDialogComponent implements OnInit, AfterViewInit {
   readonly renamed = output<EnvironmentRenamedEvent>();
 
   private readonly environmentsFacade = inject(EnvironmentsFacade);
-  private readonly copyFacade = inject(CopyFacade);
 
   @ViewChild('newNameInput') private readonly newNameInput?: ElementRef<HTMLInputElement>;
 
@@ -54,7 +61,6 @@ export class RenameEnvironmentDialogComponent implements OnInit, AfterViewInit {
 
   protected readonly deleteOldAnyway = signal(false);
   protected readonly error = signal<string | null>(null);
-  protected readonly step = signal<'idle' | 'creating' | 'copying' | 'deleting'>('idle');
 
   protected readonly variables = computed(() =>
     this.items().filter((i) => i.kind === 'variable' && i.level === 'environment' && i.scope.env === this.oldName()),
@@ -66,14 +72,7 @@ export class RenameEnvironmentDialogComponent implements OnInit, AfterViewInit {
 
   protected readonly trimmed = computed(() => this.newName().trim());
   protected readonly nameValid = computed(() => this.trimmed().length === 0 || NAME_PATTERN.test(this.trimmed()));
-  protected readonly canDeleteOld = computed(() => this.secrets().length === 0 || this.deleteOldAnyway());
-  protected readonly submitting = computed(
-    () =>
-      this.step() !== 'idle' ||
-      this.environmentsFacade.createEnvironment.isPending() ||
-      this.environmentsFacade.deleteEnvironment.isPending() ||
-      this.copyFacade.isPending(),
-  );
+  protected readonly submitting = computed(() => this.environmentsFacade.renameEnvironment.isPending());
 
   protected HandleNewNameInput(event: Event): void {
     this.newName.set((event.target as HTMLInputElement).value);
@@ -101,47 +100,48 @@ export class RenameEnvironmentDialogComponent implements OnInit, AfterViewInit {
       this.error.set('Choose a different name.');
       return;
     }
-    if (this.environments().some((env) => env.name === trimmed)) {
-      this.error.set('An environment with this name already exists.');
-      return;
-    }
-    // If secrets exist and the user hasn't checked "delete anyway", we still create the new
-    // environment and copy variables below — we just skip deleting the old one afterward.
 
     try {
-      this.step.set('creating');
-      await this.environmentsFacade.createEnvironment.mutateAsync({ org: this.org(), repo: this.repo(), name: trimmed });
+      const result = await this.environmentsFacade.renameEnvironment.mutateAsync({
+        org: this.org(),
+        repo: this.repo(),
+        oldName: this.oldName(),
+        newName: trimmed,
+        deleteOldAnyway: this.deleteOldAnyway(),
+      });
 
-      const variables = this.variables();
-      if (variables.length > 0) {
-        this.step.set('copying');
-        const newScope: ScopeRef = { org: this.org(), repo: this.repo(), env: trimmed };
-        const outcomes = await Promise.all(
-          variables.map((v) =>
-            this.copyFacade.CopyTo('variable', v.name, v.value ?? '', [{ level: 'environment', scope: newScope, exists: false }]),
-          ),
+      if (result.listVariablesError) {
+        this.error.set(
+          `Created "${trimmed}", but its variables couldn't be listed to copy: ${result.listVariablesError}. ` +
+            `The old environment "${this.oldName()}" was left in place — fix and retry, or copy them manually.`,
         );
-        const failed = outcomes.flat().filter((r) => !r.ok);
-        if (failed.length > 0) {
-          this.error.set(
-            `Created "${trimmed}", but ${failed.length} of ${variables.length} variable(s) failed to copy: ${failed
-              .map((f) => f.message)
-              .join('; ')}. The old environment "${this.oldName()}" was left in place — fix and retry, or copy them manually.`,
-          );
-          this.step.set('idle');
-          return;
-        }
+        return;
+      }
+      if (result.variableCopyFailures.length > 0) {
+        const totalAttempted = result.variablesCopied + result.variableCopyFailures.length;
+        this.error.set(
+          `Created "${trimmed}", but ${result.variableCopyFailures.length} of ${totalAttempted} variable(s) failed to copy: ${result.variableCopyFailures
+            .map((f) => f.error)
+            .join('; ')}. The old environment "${this.oldName()}" was left in place — fix and retry, or copy them manually.`,
+        );
+        return;
       }
 
-      if (this.canDeleteOld()) {
-        this.step.set('deleting');
-        await this.environmentsFacade.deleteEnvironment.mutateAsync({ org: this.org(), repo: this.repo(), name: this.oldName() });
+      if (result.oldEnvironmentDeleteError) {
+        // The rename itself fully succeeded (new environment created, every variable copied) —
+        // only cleanup of the old one failed. Mirrors ItemEditorPanelComponent's identical choice
+        // for a secret rename whose delete-old step fails: stay open and show the warning rather
+        // than emit success and close, since closing here (which unmounts this dialog in
+        // DashboardShellComponent) would make any warning set afterward invisible.
+        this.error.set(
+          `Renamed to "${trimmed}", but removing "${this.oldName()}" failed: ${result.oldEnvironmentDeleteError}. Delete it manually when ready.`,
+        );
+        return;
       }
 
       this.renamed.emit({ oldName: this.oldName(), newName: trimmed });
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'GitHub rejected this request.');
-      this.step.set('idle');
     }
   }
 }

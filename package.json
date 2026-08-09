@@ -2,14 +2,13 @@
   "name": "github-variables-manager",
   "version": "1.0.0",
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,yellow \"npm run dev -w server\" \"npm start -w client\"",
-    "dev:server": "npm run dev -w server",
+    "dev": "concurrently -n api,client -c blue,yellow \"npm run dev:api\" \"npm start -w client\"",
+    "dev:api": "dotnet run --project api/src/GithubVariablesManager.Api/GithubVariablesManager.Api.csproj",
     "dev:client": "npm start -w client",
     "dev:archive:web": "npm run dev -w web"
   },
   "workspaces": [
     "archive/web",
-    "server",
     "client"
   ],
   "private": true,

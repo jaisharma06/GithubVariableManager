@@ -2,14 +2,14 @@ import { HttpErrorResponse, type HttpInterceptorFn } from '@angular/common/http'
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { catchError, throwError } from 'rxjs';
-import { AUTH_TOKEN_OVERRIDE } from '../gateways/GithubHttp.service';
+import { AUTH_TOKEN_OVERRIDE } from '../gateways/AuthTokenOverride';
 import { AuthService } from '../services/AuthService';
 
 /**
  * Every Gateway call is authenticated ambiently — this interceptor attaches whichever credential
  * is currently active (today: the user's own GitHub PAT/OAuth token; later: whatever the ASP.NET
  * Core backend expects) rather than every Gateway method taking a `token` parameter, the way
- * web/src/api/*.ts's functions do today. See GithubHttp.service.ts's AUTH_TOKEN_OVERRIDE for the
+ * web/src/api/*.ts's functions do today. See AuthTokenOverride.ts's AUTH_TOKEN_OVERRIDE for the
  * one exception (the pre-session viewer lookup during connect).
  */
 // A const holding a function is PascalCase per this project's "functions are PascalCase" rule

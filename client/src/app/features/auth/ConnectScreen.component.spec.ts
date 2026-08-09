@@ -1,7 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { OAUTH_GATEWAY, type IOAuthGateway } from '../../core/gateways/IOAuthGateway';
-import { SCOPES_GATEWAY, type IScopesGateway } from '../../core/gateways/IScopesGateway';
 import { ConnectScreenComponent } from './ConnectScreen.component';
 
 describe('ConnectScreenComponent', () => {
@@ -15,23 +14,13 @@ describe('ConnectScreenComponent', () => {
       'FetchOAuthClientId',
       'StartDeviceFlow',
       'PollDeviceToken',
+      'GetViewer',
     ]);
     fakeOAuthGateway.FetchOAuthClientId.and.resolveTo('client-id-123');
-    const fakeScopesGateway = jasmine.createSpyObj<IScopesGateway>('IScopesGateway', [
-      'GetViewer',
-      'ListMyOrgs',
-      'ListMyRepos',
-      'ListOrgRepos',
-      'GetAccountType',
-    ]);
 
     await TestBed.configureTestingModule({
       imports: [ConnectScreenComponent],
-      providers: [
-        provideRouter([]),
-        { provide: OAUTH_GATEWAY, useValue: fakeOAuthGateway },
-        { provide: SCOPES_GATEWAY, useValue: fakeScopesGateway },
-      ],
+      providers: [provideRouter([]), { provide: OAUTH_GATEWAY, useValue: fakeOAuthGateway }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ConnectScreenComponent);

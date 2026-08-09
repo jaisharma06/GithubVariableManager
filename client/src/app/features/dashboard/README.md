@@ -27,11 +27,31 @@
 - **`RunnersPanel.component.ts`/`.html`** — self-hosted runners for the active scope, polled every
   30s (`RunnersFacade.RunnersQuery`'s `refetchInterval`). Computes `runners`/`onlineCount`/
   `noAccess`/`errorMessage`; `RunnerState`/`RunnerDotClass`/`RunnerLabelClass`/`RunnerTitle` render
-  per-runner status (online/busy/offline).
+  per-runner status (online/busy/offline). As of Phase 4 (the ASP.NET Core migration's Runners
+  vertical), `noAccess` reads the backend's own classification (`err instanceof GitHubApiError &&
+  err.locked`) instead of computing it from `err.status === 403 || err.status === 404` itself —
+  `BackendRunnersGateway.service.ts` populates `GitHubApiError.locked` straight off `api/`'s
+  `{ locked, status, message }` response body. This retires the fourth and final of the four
+  originally-duplicated permission-classification sites named in `docs/Architecture.md`.
 - **`RenameEnvironmentDialog.component.ts`/`.html`** — GitHub has no rename-environment endpoint,
-  so this creates the new environment, copies every environment-level variable's value across, then
-  deletes the old environment — unless it still has secrets (which can't be read back to copy), in
-  which case deletion is skipped unless the user explicitly checks "delete anyway". The `newName`
+  so renaming means creating the new environment, copying every environment-level variable's value
+  across, then deleting the old environment — unless it still has secrets (which can't be read back
+  to copy), in which case deletion is skipped unless the user explicitly checks "delete anyway". As
+  of Phase 3c this whole sequence is one `EnvironmentsFacade.renameEnvironment` call
+  (`api/Services/EnvironmentRenameService.cs` does the orchestration server-side) rather than three
+  client-driven mutations, so the dialog dropped its `CopyFacade` dependency, its `environments`
+  input (the "already in use" duplicate check moved server-side), and its three-phase
+  `step: 'idle'|'creating'|'copying'|'deleting'` signal — `submitting` is now just
+  `environmentsFacade.renameEnvironment.isPending()`, and the submit button shows a single
+  "Renaming…" state instead of "Creating…"/"Copying variables…"/"Cleaning up…" (a user-visible copy
+  change). It still does the same cheap, static client-side format checks (non-empty/pattern/
+  not-same-as-old) before calling the gateway for zero-round-trip UX; only the "already exists"
+  check (needs live GitHub state) moved server-side, surfaced through the existing `catch` handler.
+  If the rename fully succeeds but the old environment's cleanup step fails
+  (`oldEnvironmentDeleteError`), the dialog stays open and shows that as a warning instead of
+  emitting `renamed` — mirroring `ItemEditorPanelComponent`'s identical choice for a secret rename
+  whose delete-old step fails, since emitting `renamed` here closes (unmounts) this dialog in
+  `DashboardShellComponent`, which would make any warning set afterward invisible. The `newName`
   signal is seeded in `ngOnInit()`, not a field initializer — see the class doc comment and
   `core/testing/README.md`'s NG0950 note for why that matters under `TestBed.createComponent()` +
   `setInput()`.

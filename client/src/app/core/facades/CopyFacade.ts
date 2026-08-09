@@ -1,26 +1,32 @@
-import { Injectable, computed, inject } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { injectMutation, injectQueryClient } from '@tanstack/angular-query-experimental';
+import { LEDGER_GATEWAY, type ILedgerGateway } from '../gateways/ILedgerGateway';
 import type { PutSecretOptions } from '../gateways/ISecretsGateway';
 import type { ItemKind } from '../Types';
-import { ErrorMessage } from './LedgerSupport';
-import { ItemMutationsFacade } from './ItemMutationsFacade';
 import type { CopyResult, CopyTarget } from './CopySupport';
 
 /**
- * Pushes one variable/secret's value out to a batch of other scopes, reusing
- * ItemMutationsFacade's create/update/put mutations (and their optimistic-update behavior) each
- * destination already goes through individually. Every target is attempted independently so one
- * failure doesn't hide whether the rest succeeded. Port of the useCopyItem hook.
+ * Pushes one variable/secret's value out to a batch of other scopes — port of the useCopyItem
+ * hook. As of Phase 6 this is one `ILedgerGateway.Copy` call, fanned out server-side
+ * (`Services/CopyService.cs`) over every target, rather than a client-side `Promise.allSettled`
+ * composing `ItemMutationsFacade`'s per-item mutations. Deliberately no optimistic `onMutate`
+ * patch here, the same tradeoff `EnvironmentsFacade.renameEnvironment` already made in Phase 3c
+ * when its 3-step client sequence collapsed to one backend call: hand-rolling an equivalent
+ * multi-target optimistic patch is high-risk for low payoff, so `onSuccess` invalidates the ledger
+ * query instead, accepting a brief refetch flicker as an honest tradeoff.
  */
 @Injectable({ providedIn: 'root' })
 export class CopyFacade {
-  private readonly itemMutations = inject(ItemMutationsFacade);
+  private readonly ledgerGateway = inject<ILedgerGateway>(LEDGER_GATEWAY);
+  private readonly queryClient = injectQueryClient();
 
-  readonly isPending = computed(
-    () =>
-      this.itemMutations.createVariable.isPending() ||
-      this.itemMutations.updateVariable.isPending() ||
-      this.itemMutations.putSecret.isPending(),
-  );
+  private readonly copy = injectMutation(() => ({
+    mutationFn: (p: { kind: ItemKind; name: string; value: string; targets: CopyTarget[]; options?: PutSecretOptions }) =>
+      this.ledgerGateway.Copy(p.kind, p.name, p.value, p.targets, p.options),
+    onSuccess: () => this.queryClient.invalidateQueries({ queryKey: ['ledger'] }),
+  }));
+
+  readonly isPending = this.copy.isPending;
 
   async CopyTo(
     kind: ItemKind,
@@ -29,25 +35,6 @@ export class CopyFacade {
     targets: CopyTarget[],
     options?: PutSecretOptions,
   ): Promise<CopyResult[]> {
-    const settled = await Promise.allSettled(
-      targets.map((t) =>
-        kind === 'variable'
-          ? t.exists
-            ? this.itemMutations.updateVariable.mutateAsync({
-                scope: t.scope,
-                level: t.level,
-                currentName: name,
-                newName: name,
-                value,
-              })
-            : this.itemMutations.createVariable.mutateAsync({ scope: t.scope, level: t.level, name, value })
-          : this.itemMutations.putSecret.mutateAsync({ scope: t.scope, level: t.level, name, value, options }),
-      ),
-    );
-    return settled.map((result, i) => ({
-      target: targets[i],
-      ok: result.status === 'fulfilled',
-      message: result.status === 'rejected' ? ErrorMessage(result.reason) : undefined,
-    }));
+    return this.copy.mutateAsync({ kind, name, value, targets, options });
   }
 }

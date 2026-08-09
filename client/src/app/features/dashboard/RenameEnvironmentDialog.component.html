@@ -68,15 +68,7 @@
     <div class="flex justify-end gap-2 border-t border-line px-5 py-4">
       <app-button type="button" variant="ghost" [disabled]="submitting()" (click)="closed.emit()">Cancel</app-button>
       <app-button type="submit" variant="primary" [disabled]="submitting() || !trimmed()">
-        {{
-          step() === 'creating'
-            ? 'Creating…'
-            : step() === 'copying'
-              ? 'Copying variables…'
-              : step() === 'deleting'
-                ? 'Cleaning up…'
-                : 'Rename'
-        }}
+        {{ submitting() ? 'Renaming…' : 'Rename' }}
       </app-button>
     </div>
   </form>

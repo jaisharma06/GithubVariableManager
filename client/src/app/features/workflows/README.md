@@ -10,10 +10,17 @@
   rationale as `CompareViewComponent` (see `features/compare/README.md`): which workflow is
   selected, which runs are checked, and whether the delete confirmation is open are all purely local
   to this view.
-  - `selectedWorkflowId` drives `WorkflowsFacade.WorkflowRunsQuery`.
+  - `selectedWorkflowId` drives `WorkflowsFacade.WorkflowRunsQuery`, which auto-refreshes the runs
+    list every 5s while any visible run is still in flight (`status !== 'completed'`) and stops
+    polling entirely once every visible run has settled — no manual refresh needed to see a running
+    workflow finish. See `core/facades/README.md`'s `WorkflowsFacade.ts` entry for the polling
+    mechanics.
   - `selectedRunIds` is a `Set<number>` of checked run ids, scoped to the currently-displayed page
     of 30 runs (checking "select all" only selects what's visible — it does not fetch or select a
-    workflow's full history). It's cleared whenever a different workflow is selected.
+    workflow's full history). It's cleared whenever a different workflow is selected, and pruned
+    down to whatever ids are still present in `runs()` via a `constructor()` `effect()` whenever a
+    poll changes the visible run list — keeps "Delete N runs?" honest with what's actually still
+    checked rather than referencing a run that scrolled off the list or was replaced by a poll.
   - A single run can be deleted from its row (`WorkflowsFacade.deleteWorkflowRun`); a 403 there
     surfaces as "deleting workflow runs requires write access to this repository" in a banner above
     the runs list.
@@ -24,10 +31,13 @@
     runs one at a time and can take a while for a large selection, and it only clears run history —
     if the workflow's YAML file still exists in the repo, GitHub may re-list the workflow once it
     runs again. Progress (`done`/`total`) renders live in the dialog via `DeleteRuns`'s `onProgress`
-    callback. On a partial failure, `selectedRunIds` is narrowed down to just the failed ids, so
-    clicking confirm again only retries what didn't succeed — `DeleteRuns` works off a fixed,
-    caller-supplied id list rather than re-fetching current state, so this narrowing is what keeps a
-    retry correct.
+    callback — as of Phase 5 (the ASP.NET Core migration's Workflows vertical), this progress is
+    backend-driven: `DeleteRuns` starts a cleanup job server-side and polls it, rather than chunking
+    the deletes itself, but the UX (a live "Deleting N of M…" line, per-poll progress) is unchanged
+    from the caller's perspective. On a partial failure, `selectedRunIds` is narrowed down to just
+    the failed ids, so clicking confirm again only retries what didn't succeed — `DeleteRuns` works
+    off a fixed, caller-supplied id list rather than re-fetching current state, so this narrowing is
+    what keeps a retry correct.
 - **`WorkflowRunsList.component.ts`/`.html`** — `WorkflowRunsListComponent`. Purely
   `@Input()`-driven (`runs`, `deletingRunId`, `selectedRunIds`) plus `deleteRun`/`toggleRun`/
   `toggleSelectAll` outputs — no facade, no query, and it never computes the next selection itself
@@ -57,6 +67,11 @@ Needs `ProvideTestQueryClient()`, a fake `WORKFLOWS_GATEWAY` provider
 (`CreateFakeWorkflowsGateway()`), and `SeedFakeSession()`/`ClearFakeSession()` — same requirement
 set as every other Facade-backed component. `WorkflowsQuery`/`WorkflowRunsQuery` assertions use
 `WaitFor` (queries run outside `NgZone` — see `core/testing/README.md`); `deleteWorkflowRun`/
-`DeleteRuns` assertions use `fakeAsync()` + `tick()` (directly-awaited mutation flows).
-`WorkflowRunsListComponent`'s spec needs neither, being purely `@Input()`-driven like
-`LedgerRowComponent`'s.
+`DeleteRuns` assertions use `fakeAsync()` + `tick()` (directly-awaited mutation flows). As of Phase
+5, `DeleteRuns`'s tests mock `StartRunCleanup`/`PollRunCleanup` rather than `DeleteWorkflowRun`
+directly, and need one `tick()` per chained `await` in the start+poll sequence (one for
+`StartRunCleanup`, one per `PollRunCleanup` resolution); a test asserting incremental progress
+across multiple polls needs `tick(WORKFLOW_CLEANUP_POLL_INTERVAL_MS)` between staged
+`PollRunCleanup` resolutions, mirroring `OAuthDeviceFlow.component.spec.ts`'s
+`tick(FAKE_DEVICE.interval * 1000)` idiom. `WorkflowRunsListComponent`'s spec needs neither, being
+purely `@Input()`-driven like `LedgerRowComponent`'s.

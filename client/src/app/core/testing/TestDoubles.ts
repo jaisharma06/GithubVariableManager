@@ -6,6 +6,7 @@
 import type { Provider } from '@angular/core';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import type { IEnvironmentsGateway } from '../gateways/IEnvironmentsGateway';
+import type { ILedgerGateway } from '../gateways/ILedgerGateway';
 import type { IOAuthGateway } from '../gateways/IOAuthGateway';
 import type { IRunnersGateway } from '../gateways/IRunnersGateway';
 import type { IScopesGateway } from '../gateways/IScopesGateway';
@@ -44,7 +45,6 @@ export function ProvideTestQueryClient(): Provider {
 
 export function CreateFakeScopesGateway(): jasmine.SpyObj<IScopesGateway> {
   return jasmine.createSpyObj<IScopesGateway>('IScopesGateway', [
-    'GetViewer',
     'ListMyOrgs',
     'ListMyRepos',
     'ListOrgRepos',
@@ -57,30 +57,45 @@ export function CreateFakeEnvironmentsGateway(): jasmine.SpyObj<IEnvironmentsGat
     'ListEnvironments',
     'CreateEnvironment',
     'DeleteEnvironment',
+    'RenameEnvironment',
   ]);
 }
 
 export function CreateFakeVariablesGateway(): jasmine.SpyObj<IVariablesGateway> {
   return jasmine.createSpyObj<IVariablesGateway>('IVariablesGateway', [
-    'ListVariables',
     'CreateVariable',
     'UpdateVariable',
     'DeleteVariable',
   ]);
 }
 
+export function CreateFakeLedgerGateway(): jasmine.SpyObj<ILedgerGateway> {
+  return jasmine.createSpyObj<ILedgerGateway>('ILedgerGateway', ['GetLedger', 'Copy', 'DeleteEverywhere']);
+}
+
 export function CreateFakeSecretsGateway(): jasmine.SpyObj<ISecretsGateway> {
-  return jasmine.createSpyObj<ISecretsGateway>('ISecretsGateway', ['ListSecrets', 'GetPublicKey', 'PutSecret', 'DeleteSecret']);
+  return jasmine.createSpyObj<ISecretsGateway>('ISecretsGateway', ['PutSecret', 'RenameSecret', 'DeleteSecret']);
 }
 
 export function CreateFakeRunnersGateway(): jasmine.SpyObj<IRunnersGateway> {
-  return jasmine.createSpyObj<IRunnersGateway>('IRunnersGateway', ['ListRepoRunners', 'ListOrgRunners']);
+  return jasmine.createSpyObj<IRunnersGateway>('IRunnersGateway', ['ListRunners']);
 }
 
 export function CreateFakeOAuthGateway(): jasmine.SpyObj<IOAuthGateway> {
-  return jasmine.createSpyObj<IOAuthGateway>('IOAuthGateway', ['FetchOAuthClientId', 'StartDeviceFlow', 'PollDeviceToken']);
+  return jasmine.createSpyObj<IOAuthGateway>('IOAuthGateway', [
+    'FetchOAuthClientId',
+    'StartDeviceFlow',
+    'PollDeviceToken',
+    'GetViewer',
+  ]);
 }
 
 export function CreateFakeWorkflowsGateway(): jasmine.SpyObj<IWorkflowsGateway> {
-  return jasmine.createSpyObj<IWorkflowsGateway>('IWorkflowsGateway', ['ListWorkflows', 'ListWorkflowRuns', 'DeleteWorkflowRun']);
+  return jasmine.createSpyObj<IWorkflowsGateway>('IWorkflowsGateway', [
+    'ListWorkflows',
+    'ListWorkflowRuns',
+    'DeleteWorkflowRun',
+    'StartRunCleanup',
+    'PollRunCleanup',
+  ]);
 }

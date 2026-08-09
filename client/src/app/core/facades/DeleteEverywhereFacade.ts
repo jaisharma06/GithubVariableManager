@@ -1,35 +1,32 @@
-import { Injectable, computed, inject } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { injectMutation, injectQueryClient } from '@tanstack/angular-query-experimental';
+import { LEDGER_GATEWAY, type ILedgerGateway } from '../gateways/ILedgerGateway';
 import type { ItemKind } from '../Types';
 import type { DeleteEverywhereResult, DeleteEverywhereTarget } from './CopySupport';
-import { ItemMutationsFacade } from './ItemMutationsFacade';
-import { ErrorMessage } from './LedgerSupport';
 
 /**
  * Deletes one variable/secret, by name, from every scope it's currently set in — port of the
- * useDeleteEverywhere hook. Mirrors CopyFacade's shape: reuses ItemMutationsFacade's per-item
- * delete mutations rather than duplicating the delete-call logic, and attempts every target
- * independently (Promise.allSettled) so one failure doesn't hide whether the rest succeeded.
+ * useDeleteEverywhere hook. Structural twin of `CopyFacade`'s Phase 6 rewrite: one
+ * `ILedgerGateway.DeleteEverywhere` call, fanned out server-side (`Services/DeleteEverywhereService.cs`)
+ * over every target, rather than a client-side `Promise.allSettled` composing
+ * `ItemMutationsFacade.deleteVariable`/`deleteSecret`. Same dropped-optimistic-update tradeoff as
+ * `CopyFacade` — see its doc comment (which cites the `EnvironmentsFacade.renameEnvironment`
+ * precedent) for the reasoning; `onSuccess` invalidates the ledger query instead.
  */
 @Injectable({ providedIn: 'root' })
 export class DeleteEverywhereFacade {
-  private readonly itemMutations = inject(ItemMutationsFacade);
+  private readonly ledgerGateway = inject<ILedgerGateway>(LEDGER_GATEWAY);
+  private readonly queryClient = injectQueryClient();
 
-  readonly isPending = computed(
-    () => this.itemMutations.deleteVariable.isPending() || this.itemMutations.deleteSecret.isPending(),
-  );
+  private readonly deleteEverywhere = injectMutation(() => ({
+    mutationFn: (p: { kind: ItemKind; name: string; targets: DeleteEverywhereTarget[] }) =>
+      this.ledgerGateway.DeleteEverywhere(p.kind, p.name, p.targets),
+    onSuccess: () => this.queryClient.invalidateQueries({ queryKey: ['ledger'] }),
+  }));
+
+  readonly isPending = this.deleteEverywhere.isPending;
 
   async DeleteFrom(kind: ItemKind, name: string, targets: DeleteEverywhereTarget[]): Promise<DeleteEverywhereResult[]> {
-    const settled = await Promise.allSettled(
-      targets.map((t) =>
-        kind === 'variable'
-          ? this.itemMutations.deleteVariable.mutateAsync({ scope: t.scope, level: t.level, name })
-          : this.itemMutations.deleteSecret.mutateAsync({ scope: t.scope, level: t.level, name }),
-      ),
-    );
-    return settled.map((result, i) => ({
-      target: targets[i],
-      ok: result.status === 'fulfilled',
-      message: result.status === 'rejected' ? ErrorMessage(result.reason) : undefined,
-    }));
+    return this.deleteEverywhere.mutateAsync({ kind, name, targets });
   }
 }

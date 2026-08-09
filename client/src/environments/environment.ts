@@ -3,10 +3,8 @@
 // fileReplacements.
 export const environment = {
   production: false,
-  oauthServerUrl: 'http://localhost:8787',
-  // GitHub's REST API directly, today. See docs/Architecture.md's "Future ASP.NET Core seam"
-  // section: swap this to the .NET backend's own base URL once it exists, and pair it with a new
-  // Gateway implementation set — GithubHttp itself, and everything above it (Facades,
-  // Components), stays unchanged.
-  apiBaseUrl: 'https://api.github.com',
+  // The api/ ASP.NET Core backend — see docs/Architecture.md's "The ASP.NET Core migration"
+  // section. Owns the Auth vertical today (Phase 1); more resources move here as later phases
+  // land, each pairing a new Backend*Gateway with a swapped App.config.ts provider.
+  backendApiBaseUrl: 'http://localhost:5080',
 };

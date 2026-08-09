@@ -10,11 +10,11 @@ The connect flow and route guard:
 - `AuthGuard.ts` (`CanActivateFn`) — redirects to `/connect` via `router.createUrlTree(...)` when
   `AuthService.token()` is null.
 
-`core/gateways/IOAuthGateway.ts` + `LocalOAuthGateway.service.ts` (talks to this app's own local
-relay server, not `api.github.com` — a separate Gateway from the 5 GitHub ones) and
-`src/environments/environment.ts` / `environment.prod.ts` (carry `oauthServerUrl` and
-`apiBaseUrl`, swapped via `angular.json`'s `fileReplacements` on a production build) live outside
-this folder but exist to support it.
+`core/gateways/IOAuthGateway.ts` + `BackendOAuthGateway.service.ts` (talks to the `api/` ASP.NET
+Core backend's Auth vertical, not `api.github.com` — one of several resource-specific Gateways, all
+backend-mediated now) and `src/environments/environment.ts` / `environment.prod.ts` (carry
+`backendApiBaseUrl`, swapped via `angular.json`'s `fileReplacements` on a production build) live
+outside this folder but exist to support it.
 
 `/connect` is a real route in `App.routes.ts`; the other three routes (`/`, `/o/:org`,
 `/r/:owner/:repo`) are each behind `AuthGuard`.

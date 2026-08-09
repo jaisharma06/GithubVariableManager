@@ -1,15 +1,15 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { ENVIRONMENTS_GATEWAY } from '../../core/gateways/IEnvironmentsGateway';
+import { OAUTH_GATEWAY } from '../../core/gateways/IOAuthGateway';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
 import { SECRETS_GATEWAY } from '../../core/gateways/ISecretsGateway';
-import { VARIABLES_GATEWAY } from '../../core/gateways/IVariablesGateway';
 import type { LedgerItem } from '../../core/Types';
 import {
   ClearFakeSession,
   CreateFakeEnvironmentsGateway,
+  CreateFakeOAuthGateway,
   CreateFakeScopesGateway,
   CreateFakeSecretsGateway,
-  CreateFakeVariablesGateway,
   ProvideTestQueryClient,
   SeedFakeSession,
 } from '../../core/testing/TestDoubles';
@@ -18,7 +18,6 @@ import { RenameEnvironmentDialogComponent } from './RenameEnvironmentDialog.comp
 describe('RenameEnvironmentDialogComponent', () => {
   let fixture: ComponentFixture<RenameEnvironmentDialogComponent>;
   let fakeEnvironmentsGateway: ReturnType<typeof CreateFakeEnvironmentsGateway>;
-  let fakeVariablesGateway: ReturnType<typeof CreateFakeVariablesGateway>;
 
   const STAGING_VARIABLE: LedgerItem = {
     id: 'variable:environment:acme-corp:widgets:staging:API_URL',
@@ -35,16 +34,15 @@ describe('RenameEnvironmentDialogComponent', () => {
     SeedFakeSession();
 
     fakeEnvironmentsGateway = CreateFakeEnvironmentsGateway();
-    fakeVariablesGateway = CreateFakeVariablesGateway();
 
     await TestBed.configureTestingModule({
       imports: [RenameEnvironmentDialogComponent],
       providers: [
         ProvideTestQueryClient(),
         { provide: ENVIRONMENTS_GATEWAY, useValue: fakeEnvironmentsGateway },
-        { provide: VARIABLES_GATEWAY, useValue: fakeVariablesGateway },
         { provide: SECRETS_GATEWAY, useValue: CreateFakeSecretsGateway() },
         { provide: SCOPES_GATEWAY, useValue: CreateFakeScopesGateway() },
+        { provide: OAUTH_GATEWAY, useValue: CreateFakeOAuthGateway() },
       ],
     }).compileComponents();
 
@@ -52,11 +50,22 @@ describe('RenameEnvironmentDialogComponent', () => {
     fixture.componentRef.setInput('org', 'acme-corp');
     fixture.componentRef.setInput('repo', 'widgets');
     fixture.componentRef.setInput('oldName', 'staging');
-    fixture.componentRef.setInput('environments', [{ id: 1, name: 'staging' }]);
     fixture.componentRef.setInput('items', [STAGING_VARIABLE]);
   });
 
   afterEach(() => ClearFakeSession());
+
+  function TypeNewName(newName: string): void {
+    const input = fixture.nativeElement.querySelector('input[type="text"], input:not([type])') as HTMLInputElement;
+    input.value = newName;
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+  }
+
+  function Submit(): void {
+    const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+  }
 
   it('pre-fills the new-name field with the current name', () => {
     fixture.detectChanges();
@@ -65,44 +74,64 @@ describe('RenameEnvironmentDialogComponent', () => {
   });
 
   it(
-    'creates the new environment, copies variables, then deletes the old one, and emits renamed',
+    'sends one RenameEnvironment request and emits renamed on success',
     fakeAsync(() => {
       fixture.detectChanges();
-      fakeEnvironmentsGateway.CreateEnvironment.and.resolveTo();
-      fakeEnvironmentsGateway.DeleteEnvironment.and.resolveTo();
-      fakeVariablesGateway.CreateVariable.and.resolveTo();
+      fakeEnvironmentsGateway.RenameEnvironment.and.resolveTo({
+        listVariablesError: null,
+        variablesCopied: 1,
+        variableCopyFailures: [],
+        oldEnvironmentDeleted: true,
+        oldEnvironmentDeleteError: null,
+      });
 
       const renamedSpy = jasmine.createSpy('renamed');
       fixture.componentInstance.renamed.subscribe(renamedSpy);
 
-      const input = fixture.nativeElement.querySelector('input[type="text"], input:not([type])') as HTMLInputElement;
-      input.value = 'production';
-      input.dispatchEvent(new Event('input'));
-      fixture.detectChanges();
-
-      const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
-      form.dispatchEvent(new Event('submit', { cancelable: true }));
-      // Three chained mutations (create env -> copy the variable -> delete old env), each its
-      // own onMutate/mutationFn microtask hop — flush repeatedly rather than guess a single tick.
-      tick();
-      tick();
+      TypeNewName('production');
+      Submit();
       tick();
       fixture.detectChanges();
 
-      expect(fakeEnvironmentsGateway.CreateEnvironment).toHaveBeenCalledWith('acme-corp', 'widgets', 'production');
-      expect(fakeVariablesGateway.CreateVariable).toHaveBeenCalledWith(
-        { org: 'acme-corp', repo: 'widgets', env: 'production' },
-        'environment',
-        'API_URL',
-        'https://staging.example.com',
-      );
-      expect(fakeEnvironmentsGateway.DeleteEnvironment).toHaveBeenCalledWith('acme-corp', 'widgets', 'staging');
+      expect(fakeEnvironmentsGateway.RenameEnvironment).toHaveBeenCalledWith({
+        org: 'acme-corp',
+        repo: 'widgets',
+        oldName: 'staging',
+        newName: 'production',
+        deleteOldAnyway: false,
+      });
       expect(renamedSpy).toHaveBeenCalledWith({ oldName: 'staging', newName: 'production' });
     }),
   );
 
   it(
-    'does not delete the old environment when it still has secrets, unless acknowledged',
+    'reports variable copy failures as an error and does not emit renamed',
+    fakeAsync(() => {
+      fixture.detectChanges();
+      fakeEnvironmentsGateway.RenameEnvironment.and.resolveTo({
+        listVariablesError: null,
+        variablesCopied: 0,
+        variableCopyFailures: [{ name: 'API_URL', error: 'Forbidden' }],
+        oldEnvironmentDeleted: false,
+        oldEnvironmentDeleteError: null,
+      });
+
+      const renamedSpy = jasmine.createSpy('renamed');
+      fixture.componentInstance.renamed.subscribe(renamedSpy);
+
+      TypeNewName('production');
+      Submit();
+      tick();
+      fixture.detectChanges();
+
+      expect(renamedSpy).not.toHaveBeenCalled();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('failed to copy');
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('left in place');
+    }),
+  );
+
+  it(
+    'passes deleteOldAnyway through to the request when the environment still has secrets',
     fakeAsync(() => {
       fixture.componentRef.setInput('items', [
         STAGING_VARIABLE,
@@ -117,24 +146,36 @@ describe('RenameEnvironmentDialogComponent', () => {
         } satisfies LedgerItem,
       ]);
       fixture.detectChanges();
-      fakeEnvironmentsGateway.CreateEnvironment.and.resolveTo();
-      fakeVariablesGateway.CreateVariable.and.resolveTo();
+      fakeEnvironmentsGateway.RenameEnvironment.and.resolveTo({
+        listVariablesError: null,
+        variablesCopied: 1,
+        variableCopyFailures: [],
+        oldEnvironmentDeleted: false,
+        oldEnvironmentDeleteError: null,
+      });
 
       expect((fixture.nativeElement as HTMLElement).textContent).toContain('can’t be carried over');
 
-      const input = fixture.nativeElement.querySelector('input[type="text"], input:not([type])') as HTMLInputElement;
-      input.value = 'production';
-      input.dispatchEvent(new Event('input'));
+      const checkbox = fixture.nativeElement.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new Event('change'));
       fixture.detectChanges();
 
-      const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
-      form.dispatchEvent(new Event('submit', { cancelable: true }));
-      tick();
-      tick();
+      TypeNewName('production');
+      Submit();
       tick();
       fixture.detectChanges();
 
-      expect(fakeEnvironmentsGateway.DeleteEnvironment).not.toHaveBeenCalled();
+      // The decision of whether the old environment can be deleted (secrets present, unless
+      // acknowledged) is now made server-side — this only asserts the flag was sent correctly,
+      // not that DeleteEnvironment itself was called (that call no longer happens client-side).
+      expect(fakeEnvironmentsGateway.RenameEnvironment).toHaveBeenCalledWith({
+        org: 'acme-corp',
+        repo: 'widgets',
+        oldName: 'staging',
+        newName: 'production',
+        deleteOldAnyway: true,
+      });
     }),
   );
 });

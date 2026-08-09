@@ -71,6 +71,14 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
   protected readonly replicateEnvs = signal<Set<string>>(new Set());
   protected readonly error = signal<string | null>(null);
   protected readonly replicateFailures = signal<ReplicateFailure[] | null>(null);
+  /**
+   * Set when a secret rename's PUT (new name) step succeeded but the DELETE (old name) step
+   * failed — GitHub genuinely now has both entries, and there's no GitHub API making the two-step
+   * rename transactional (see `ItemMutationsFacade.renameSecret`'s doc comment). Reuses the same
+   * warning-banner shape as `replicateFailures` below rather than inventing new UI for a second
+   * kind of partial-failure outcome.
+   */
+  protected readonly renameDeleteWarning = signal<string | null>(null);
 
   protected readonly isEdit = computed(() => this.initial() !== null);
   protected readonly isRenaming = computed(() => this.isEdit() && this.name() !== this.initial()!.name);
@@ -187,6 +195,7 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
     event.preventDefault();
     this.error.set(null);
     this.replicateFailures.set(null);
+    this.renameDeleteWarning.set(null);
 
     const name = this.name();
     if (!name.trim() || !NAME_PATTERN.test(name)) {
@@ -235,7 +244,7 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
           await this.itemMutationsFacade.createVariable.mutateAsync({ scope: targetScope, level, name, value });
         }
       } else if (isEdit && isRenaming) {
-        await this.itemMutationsFacade.renameSecret.mutateAsync({
+        const result = await this.itemMutationsFacade.renameSecret.mutateAsync({
           scope: targetScope,
           level,
           currentName: this.initial()!.name,
@@ -243,6 +252,12 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
           value,
           options,
         });
+        if (!result.deleteSucceeded) {
+          this.renameDeleteWarning.set(
+            `Saved under the new name, but couldn't remove the old one (${this.initial()!.name}): ${result.deleteError ?? 'Unknown error'}`,
+          );
+          return;
+        }
       } else if (isEdit && !value) {
         this.closed.emit();
         return;
@@ -254,7 +269,7 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
         const candidates = this.replicateCandidates();
         const targets = candidates
           .filter((c) => this.replicateEnvs().has(c.key))
-          .map((c) => ({ level: 'environment' as const, scope: c.scope, exists: !!c.existing }));
+          .map((c) => ({ level: 'environment' as const, scope: c.scope }));
         const outcome = await this.copyFacade.CopyTo(kind, name, value, targets, options);
         if (!outcome.every((r) => r.ok)) {
           this.replicateFailures.set(

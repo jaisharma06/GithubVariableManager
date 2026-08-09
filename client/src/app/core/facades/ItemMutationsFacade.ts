@@ -124,13 +124,16 @@ export class ItemMutationsFacade {
 
   /**
    * Secrets have no rename API — GitHub can't copy a value it never stores in the clear, so a
-   * "rename" is really: create the new name (with the freshly-entered value), then delete the old one.
+   * "rename" is really: create the new name (with the freshly-entered value), then delete the old
+   * one. As of Phase 3b this is one backend call (`ISecretsGateway.RenameSecret`) doing both steps
+   * server-side, rather than two sequential client-side mutation calls — but the backend still
+   * can't make the two-step rename transactional (there's no GitHub API for that), so it reports
+   * whether the delete step actually succeeded. The optimistic `onMutate` patch below assumes the
+   * clean-rename case; `onSuccess` corrects the cache if that assumption turns out wrong.
    */
   readonly renameSecret = injectMutation(() => ({
-    mutationFn: async (p: RenameSecretParams) => {
-      await this.secretsGateway.PutSecret(p.scope, p.level, p.newName, p.value, p.options);
-      await this.secretsGateway.DeleteSecret(p.scope, p.level, p.currentName);
-    },
+    mutationFn: (p: RenameSecretParams) =>
+      this.secretsGateway.RenameSecret(p.scope, p.level, p.currentName, p.newName, p.value, p.options),
     onMutate: async (p) => {
       const snapshot = await this.SnapshotLedger();
       this.UpdateLedgerItems((items) =>
@@ -146,6 +149,15 @@ export class ItemMutationsFacade {
         ),
       );
       return { snapshot };
+    },
+    onSuccess: (result) => {
+      // The PUT (new name) succeeded either way — only the DELETE (old name) step can have failed
+      // here. If it did, GitHub genuinely still has both entries now, so the optimistic "clean
+      // rename" patch above is wrong; invalidate so the next refetch shows the true state instead
+      // of silently drifting from what GitHub actually has.
+      if (!result.deleteSucceeded) {
+        this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
+      }
     },
     onError: (_err, _p, context) => {
       if (context) this.RestoreLedger(context.snapshot);

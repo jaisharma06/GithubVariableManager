@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { UrlTree, provideRouter, type ActivatedRouteSnapshot, type RouterStateSnapshot } from '@angular/router';
-import { SCOPES_GATEWAY, type IScopesGateway } from '../../core/gateways/IScopesGateway';
+import { OAUTH_GATEWAY, type IOAuthGateway } from '../../core/gateways/IOAuthGateway';
 import { AuthGuard } from './AuthGuard';
 
 const STORAGE_KEY = 'ghvm.session';
@@ -9,17 +9,16 @@ describe('AuthGuard', () => {
   afterEach(() => localStorage.removeItem(STORAGE_KEY));
 
   function RunGuard() {
-    // AuthGuard injects AuthService, which itself injects SCOPES_GATEWAY (to validate a token
+    // AuthGuard injects AuthService, which itself injects OAUTH_GATEWAY (to validate a token
     // during connect) — needs a stand-in even though this guard never calls it.
-    const fakeScopesGateway = jasmine.createSpyObj<IScopesGateway>('IScopesGateway', [
+    const fakeOAuthGateway = jasmine.createSpyObj<IOAuthGateway>('IOAuthGateway', [
+      'FetchOAuthClientId',
+      'StartDeviceFlow',
+      'PollDeviceToken',
       'GetViewer',
-      'ListMyOrgs',
-      'ListMyRepos',
-      'ListOrgRepos',
-      'GetAccountType',
     ]);
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), { provide: SCOPES_GATEWAY, useValue: fakeScopesGateway }],
+      providers: [provideRouter([]), { provide: OAUTH_GATEWAY, useValue: fakeOAuthGateway }],
     });
     return TestBed.runInInjectionContext(() =>
       AuthGuard({} as ActivatedRouteSnapshot, {} as RouterStateSnapshot),

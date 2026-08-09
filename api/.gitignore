@@ -1,0 +1,13 @@
+# Compiled output
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# Test results
+[Tt]est[Rr]esult*/
+*.trx

@@ -120,7 +120,6 @@
         [org]="scope().org"
         [repo]="repo"
         [oldName]="renameTarget"
-        [environments]="environmentsQuery.data() ?? []"
         [items]="ledgerItems()"
         (closed)="envToRename.set(null)"
         (renamed)="HandleEnvironmentRenamed($event)"

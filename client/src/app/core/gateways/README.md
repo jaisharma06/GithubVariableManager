@@ -7,22 +7,91 @@ see `docs/Architecture.md`'s "Gateway/Adapter" pattern entry for the full ration
 
 ## Contents
 
-- `IVariablesGateway.ts` / `GithubVariablesGateway.service.ts`
-- `ISecretsGateway.ts` / `GithubSecretsGateway.service.ts` (uses `SecretSealingService` for the
-  libsodium sealed-box step)
-- `IEnvironmentsGateway.ts` / `GithubEnvironmentsGateway.service.ts`
-- `IRunnersGateway.ts` / `GithubRunnersGateway.service.ts`
-- `IScopesGateway.ts` / `GithubScopesGateway.service.ts`
-- `IOAuthGateway.ts` / `LocalOAuthGateway.service.ts` — talks to this app's own local relay server
-  (`server/src/routes/auth.ts`), not `api.github.com`, so it doesn't go through
-  `GithubHttp`/`AUTH_TOKEN_OVERRIDE` at all, and its base URL comes from
-  `environments/environment.ts`'s `oauthServerUrl` rather than `apiBaseUrl`. It's the piece of
-  this app closest to what a real ASP.NET Core backend endpoint would look like.
-- `GithubHttp.service.ts` — the shared low-level HTTP primitive every GitHub gateway above calls:
-  builds the full URL from `environment.apiBaseUrl`, sets GitHub's required Accept/API-Version
-  headers, converts a failed request into a `GitHubApiError`. Also owns `AUTH_TOKEN_OVERRIDE`, the
-  one exception to ambient credential attachment (see its own doc comment).
-- `GitHubApiError.ts`, `GithubPagination.ts`, `GithubPathBuilder.ts` — small shared helpers.
+- `IVariablesGateway.ts` / `BackendVariablesGateway.service.ts` — talks to the `api/` ASP.NET Core
+  backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`), not `api.github.com` (Phase 3a).
+  Covers only the mutations now (`CreateVariable`, `UpdateVariable`, `DeleteVariable`) —
+  `ListVariables` was dropped once `LedgerFacade` moved to `ILedgerGateway`'s merged read.
+  `UpsertVariable` (create-or-update-by-name, no rename) was dropped in Phase 6: it existed only
+  for `CopyFacade.CopyTo`'s old client-side variable branch, which now calls `ILedgerGateway.Copy`
+  instead — its backend route (`PUT /api/ledger/variables`) is gone too.
+- `ILedgerGateway.ts` / `BackendLedgerGateway.service.ts` — talks to the `api/` ASP.NET Core
+  backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`). Started as purely the merged read
+  (`GET /api/ledger`), which does the variables + secrets + environment fan-out and locked-section
+  classification server-side (`Services/LedgerService.cs`) that `LedgerFacade`/
+  `LedgerSupport.RunLedgerJobs` used to assemble client-side. Reuses `LedgerResult`/
+  `LedgerPartialError`/`LedgerLockedSection` from `core/facades/LedgerSupport.ts` for the response
+  shape instead of a new duplicate type. As of Phase 6 it also covers `Copy`/`DeleteEverywhere`
+  (`POST /api/ledger/copy`/`delete-everywhere`) — the same precedent `IWorkflowsGateway` already
+  set of a Gateway growing from reads-only to include a bulk op belonging to the same vertical.
+  Reuses `CopyTarget`/`CopyResult`/`DeleteEverywhereTarget`/`DeleteEverywhereResult` from
+  `core/facades/CopySupport.ts` for those shapes, and has a private `ToTargetRequest` mapper
+  (the reverse of `ToLedgerItem`'s scope extraction) flattening a `ScopeRef` into the wire shape's
+  separate `org`/`repo`/`env` fields.
+- `ISecretsGateway.ts` / `BackendSecretsGateway.service.ts` — talks to the `api/` ASP.NET Core
+  backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`), not `api.github.com` (Phase 3b).
+  Sends a secret's plaintext value directly — sealing (public-key fetch + libsodium sealed-box
+  encryption) happens server-side now (`api/Services/SecretSealingService.cs`), replacing the old
+  `GithubSecretsGateway.service.ts`/`SecretSealingService.ts` pair entirely. `ListSecrets`/
+  `GetPublicKey` were dropped the same way `IVariablesGateway` dropped `ListVariables` in Phase 3a
+  (reads go through `ILedgerGateway`'s merged read); `RenameSecret` replaced the old two-call
+  `PutSecret`-then-`DeleteSecret` sequence with one backend call that reports whether the delete
+  step actually succeeded (`RenameSecretResult.deleteSucceeded`) — see
+  `core/facades/README.md`'s `ItemMutationsFacade.ts` entry for how a `false` result is handled.
+- `IEnvironmentsGateway.ts` / `BackendEnvironmentsGateway.service.ts` — talks to the `api/` ASP.NET
+  Core backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`), not `api.github.com` (Phase 3c).
+  `RenameEnvironment` replaces the old client-side create-then-copy-then-delete sequence
+  (`RenameEnvironmentDialogComponent` used to drive `EnvironmentsFacade.createEnvironment` +
+  `CopyFacade.CopyTo` + `EnvironmentsFacade.deleteEnvironment` itself) with one backend call that
+  reports exactly what happened (`RenameEnvironmentResult`'s `listVariablesError`/
+  `variableCopyFailures`/`oldEnvironmentDeleted`/`oldEnvironmentDeleteError`) — see
+  `core/facades/README.md`'s `EnvironmentsFacade.ts` entry for how the result is handled.
+- `IRunnersGateway.ts` / `BackendRunnersGateway.service.ts` — talks to the `api/` ASP.NET Core
+  backend's Runners vertical (`Endpoints/RunnersEndpoints.cs`), not `api.github.com` (Phase 4).
+  Collapsed to one method, `ListRunners(org, repo?)` — the org-vs-repo branching that used to live
+  in `RunnersFacade` (calling either `ListRepoRunners`/`ListOrgRunners`) moved server-side into
+  `api/Services/RunnersService.cs`. The one Backend gateway so far with its own local
+  `HttpErrorResponse` -> `GitHubApiError` converter (`ToBackendRunnersError`, inlined in the file
+  rather than extracted — rule of three not yet hit): it reads `locked` straight off the backend's
+  parsed `{ locked, status, message }` response body rather than recomputing it from `status`, so
+  `RunnersPanel.component.ts`'s `noAccess` computed reflects the backend's actual classification.
+- `IWorkflowsGateway.ts` / `BackendWorkflowsGateway.service.ts` — talks to the `api/` ASP.NET Core
+  backend's Workflows vertical (`Endpoints/WorkflowsEndpoints.cs`), not `api.github.com` (Phase 5).
+  `StartRunCleanup`/`PollRunCleanup` are a start+poll pair replacing the old N-calls-per-delete
+  shape: bulk-deleting a workflow's runs used to be `WorkflowsFacade`'s own client-side chunking
+  (`DELETE_CHUNK_SIZE`, one `DeleteWorkflowRun` call per run, `Promise.allSettled` per chunk); now a
+  single `POST /api/workflows/runs/cleanup` kicks off the chunked fan-out server-side
+  (`api/Services/WorkflowRunCleanupService.cs`) and `GET
+  /api/workflows/runs/cleanup/{jobId}` is polled for progress. Has its own local
+  `HttpErrorResponse` -> `GitHubApiError` conversion (`ToBackendWorkflowsError`), mirroring
+  `BackendRunnersGateway`'s exact pattern: reads `locked` straight off the backend's parsed `{
+  locked, status, message }` response body rather than recomputing it from `status`, so
+  `WorkflowsView.component.ts`'s `PermissionAwareMessage` now checks `err.locked` instead of
+  `err.status === 403` — the last of the four originally-duplicated permission-classification sites
+  (see `docs/Architecture.md`).
+- `IScopesGateway.ts` / `BackendScopesGateway.service.ts` — talks to the `api/` ASP.NET Core
+  backend's Scopes vertical (`Endpoints/ScopesEndpoints.cs`), injecting `HttpClient` directly, with
+  its base URL from `environments/environment.ts`'s `backendApiBaseUrl`. Unlike
+  `BackendOAuthGateway`, it needs no `AUTH_TOKEN_OVERRIDE` — every `IScopesGateway` call runs with
+  an active session, so `AuthInterceptor`'s ambient `Authorization: Bearer` attachment covers it
+  automatically.
+- `IOAuthGateway.ts` / `BackendOAuthGateway.service.ts` — talks to the `api/` ASP.NET Core
+  backend's Auth vertical (`Endpoints/AuthEndpoints.cs`), injecting `HttpClient` directly, with its
+  base URL from `environments/environment.ts`'s `backendApiBaseUrl`. It does reuse
+  `AuthTokenOverride.ts`'s `AUTH_TOKEN_OVERRIDE` context for `GetViewer`'s pre-session token
+  lookup, since that mechanism is generic to any Gateway, not GitHub-specific.
+- `GitHubApiError.ts` — as of Phase 4, its constructor takes an optional third `locked?: boolean`
+  param, defaulting to `status === 403 || status === 404` (the check every pre-existing call site
+  already computed inline) when omitted. `BackendRunnersGateway`/`BackendWorkflowsGateway` pass it
+  explicitly instead, reading `locked` off their backend's response body.
+- `AuthTokenOverride.ts` — `AUTH_TOKEN_OVERRIDE`/`AuthTokenOverrideContext`, the one exception to
+  ambient credential attachment: the one call that has to run before a session exists
+  (`AuthService.ConnectWithToken`'s viewer lookup, to validate a token that hasn't been stored yet)
+  uses it to override the token for a single request. Owned at this layer, not by
+  `core/interceptors/AuthInterceptor.ts`, so Gateways depend downward on this token only — never
+  sideways on `core/interceptors`.
+- `GithubPathBuilder.ts` — now just exports `ItemId`, a shared cache-key builder. Its
+  `VariablesPath`/`SecretsPath` URL-building functions were removed as dead code once every Gateway
+  moved to calling `api/` instead of building GitHub REST URLs itself.
 
 Facades/Components inject the `InjectionToken`s exported from the `I*Gateway.ts` files — never a
-concrete `Github*Gateway`/`LocalOAuthGateway` class directly.
+concrete `Backend*Gateway` class directly.

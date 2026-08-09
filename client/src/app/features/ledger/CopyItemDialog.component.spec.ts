@@ -1,11 +1,9 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
-import { SECRETS_GATEWAY } from '../../core/gateways/ISecretsGateway';
-import { VARIABLES_GATEWAY } from '../../core/gateways/IVariablesGateway';
+import { LEDGER_GATEWAY } from '../../core/gateways/ILedgerGateway';
 import type { LedgerItem } from '../../core/Types';
 import {
   ClearFakeSession,
-  CreateFakeSecretsGateway,
-  CreateFakeVariablesGateway,
+  CreateFakeLedgerGateway,
   ProvideTestQueryClient,
   SeedFakeSession,
 } from '../../core/testing/TestDoubles';
@@ -32,18 +30,17 @@ const STAGING_VARIABLE: LedgerItem = {
 
 describe('CopyItemDialogComponent', () => {
   let fixture: ComponentFixture<CopyItemDialogComponent>;
-  let fakeVariablesGateway: ReturnType<typeof CreateFakeVariablesGateway>;
+  let fakeLedgerGateway: ReturnType<typeof CreateFakeLedgerGateway>;
 
   beforeEach(async () => {
     SeedFakeSession();
-    fakeVariablesGateway = CreateFakeVariablesGateway();
+    fakeLedgerGateway = CreateFakeLedgerGateway();
 
     await TestBed.configureTestingModule({
       imports: [CopyItemDialogComponent],
       providers: [
         ProvideTestQueryClient(),
-        { provide: VARIABLES_GATEWAY, useValue: fakeVariablesGateway },
-        { provide: SECRETS_GATEWAY, useValue: CreateFakeSecretsGateway() },
+        { provide: LEDGER_GATEWAY, useValue: fakeLedgerGateway },
       ],
     }).compileComponents();
 
@@ -89,10 +86,16 @@ describe('CopyItemDialogComponent', () => {
   });
 
   it(
-    'copies the value to every checked destination',
+    'copies the value to every checked destination in one Copy call',
     fakeAsync(() => {
-      fakeVariablesGateway.CreateVariable.and.resolveTo();
-      fakeVariablesGateway.UpdateVariable.and.resolveTo();
+      // The create-vs-update-per-target decision is made server-side now
+      // (Services/CopyService.cs) — this dialog just assembles the full target list and lets
+      // CopyFacade.CopyTo/ILedgerGateway.Copy fan it out in one backend call.
+      const targets = [
+        { level: 'organization' as const, scope: { org: 'acme-corp' } },
+        { level: 'environment' as const, scope: { org: 'acme-corp', repo: 'widgets', env: 'staging' } },
+      ];
+      fakeLedgerGateway.Copy.and.resolveTo(targets.map((target) => ({ target, ok: true })));
       const closedSpy = jasmine.createSpy('closed');
       fixture.componentInstance.closed.subscribe(closedSpy);
 
@@ -106,15 +109,8 @@ describe('CopyItemDialogComponent', () => {
       tick();
       fixture.detectChanges();
 
-      // Organization has no existing item -> create; staging already has one -> update.
-      expect(fakeVariablesGateway.CreateVariable).toHaveBeenCalledWith({ org: 'acme-corp' }, 'organization', 'API_URL', 'https://example.com');
-      expect(fakeVariablesGateway.UpdateVariable).toHaveBeenCalledWith(
-        { org: 'acme-corp', repo: 'widgets', env: 'staging' },
-        'environment',
-        'API_URL',
-        'API_URL',
-        'https://example.com',
-      );
+      expect(fakeLedgerGateway.Copy).toHaveBeenCalledTimes(1);
+      expect(fakeLedgerGateway.Copy).toHaveBeenCalledWith('variable', 'API_URL', 'https://example.com', targets, undefined);
       expect(closedSpy).toHaveBeenCalled();
     }),
   );
