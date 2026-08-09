@@ -42,7 +42,11 @@ describe('DashboardShellComponent', () => {
   async function CreateFixture(
     params: Record<string, string>,
     options: { variables?: LedgerItem[] } = {},
-  ): Promise<{ fixture: ComponentFixture<DashboardShellComponent>; fakeVariablesGateway: ReturnType<typeof CreateFakeVariablesGateway> }> {
+  ): Promise<{
+    fixture: ComponentFixture<DashboardShellComponent>;
+    fakeVariablesGateway: ReturnType<typeof CreateFakeVariablesGateway>;
+    fakeLedgerGateway: ReturnType<typeof CreateFakeLedgerGateway>;
+  }> {
     SeedFakeSession();
 
     const fakeEnvironmentsGateway = CreateFakeEnvironmentsGateway();
@@ -88,7 +92,7 @@ describe('DashboardShellComponent', () => {
     // real instead. Absence of any loading skeleton (RunnersPanel renders one) is a reasonable
     // proxy for "the initial round of queries has settled".
     await WaitFor(fixture, () => !fixture.nativeElement.querySelector('.animate-pulse'));
-    return { fixture, fakeVariablesGateway };
+    return { fixture, fakeVariablesGateway, fakeLedgerGateway };
   }
 
   it('shows the org/repo breadcrumb from the route params', async () => {
@@ -184,6 +188,52 @@ describe('DashboardShellComponent', () => {
     await WaitFor(fixture, () => !(fixture.nativeElement as HTMLElement).textContent?.includes('Delete variable "API_URL"?'));
 
     expect(fakeVariablesGateway.DeleteVariable).toHaveBeenCalledWith(REPO_VARIABLE.scope, 'repository', 'API_URL');
+  });
+
+  it('exports the ledger and triggers a download when Export is clicked', async () => {
+    const { fixture, fakeLedgerGateway } = await CreateFixture({ owner: 'acme-corp', repo: 'widgets' });
+    const fakeBlob = new Blob(['workbook bytes']);
+    let resolveExport!: (value: { blob: Blob; filename: string }) => void;
+    fakeLedgerGateway.ExportLedger.and.returnValue(new Promise((resolve) => (resolveExport = resolve)));
+    spyOn(URL, 'createObjectURL').and.returnValue('blob:fake-url');
+    spyOn(URL, 'revokeObjectURL');
+    spyOn(HTMLAnchorElement.prototype, 'click');
+
+    const exportButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find((b) =>
+      b.textContent?.trim().startsWith('Export'),
+    )!;
+    exportButton.click();
+    fixture.detectChanges();
+
+    expect(exportButton.textContent?.trim()).toBe('Exporting…');
+    expect(exportButton.disabled).toBe(true);
+    expect(fakeLedgerGateway.ExportLedger).toHaveBeenCalledWith('acme-corp', 'widgets');
+
+    resolveExport({ blob: fakeBlob, filename: 'acme-corp-widgets-variables-secrets-2026-08-09.xlsx' });
+    await WaitFor(fixture, () => exportButton.textContent?.trim() === 'Export');
+
+    expect(URL.createObjectURL).toHaveBeenCalledWith(fakeBlob);
+    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:fake-url');
+  });
+
+  it('shows an error message when the export fails', async () => {
+    const { fixture, fakeLedgerGateway } = await CreateFixture({ owner: 'acme-corp', repo: 'widgets' });
+    fakeLedgerGateway.ExportLedger.and.rejectWith(new Error('GitHub rejected this request.'));
+
+    const exportButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find((b) =>
+      b.textContent?.trim().startsWith('Export'),
+    )!;
+    exportButton.click();
+    fixture.detectChanges();
+
+    await WaitFor(
+      fixture,
+      () => (fixture.nativeElement as HTMLElement).textContent?.includes('GitHub rejected this request.') ?? false,
+    );
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('GitHub rejected this request.');
+    expect(exportButton.textContent?.trim()).toBe('Export');
   });
 
   it('navigates to /connect when Disconnect is clicked', async () => {

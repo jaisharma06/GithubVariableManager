@@ -147,6 +147,33 @@ export class BackendLedgerGateway implements ILedgerGateway {
     return data.results.map((r, i) => ({ target: targets[i], ok: r.ok, message: r.message ?? undefined }));
   }
 
+  async ExportLedger(org: string, repo?: string): Promise<{ blob: Blob; filename: string }> {
+    const params = new URLSearchParams({ org });
+    if (repo) params.set('repo', repo);
+
+    const response = await firstValueFrom(
+      this.http.get(`${environment.backendApiBaseUrl}/api/ledger/export?${params.toString()}`, {
+        responseType: 'blob',
+        observe: 'response',
+      }),
+    );
+
+    return { blob: response.body!, filename: this.FilenameFrom(response.headers.get('Content-Disposition'), org, repo) };
+  }
+
+  /**
+   * Parses the filename out of the response's `Content-Disposition` header. Falls back to
+   * recomputing it locally, in the same format the server builds it in, so a header-parsing edge
+   * case never blocks the actual download.
+   */
+  private FilenameFrom(contentDisposition: string | null, org: string, repo?: string): string {
+    const match = contentDisposition?.match(/filename="?([^";]+)"?/i);
+    if (match?.[1]) return match[1];
+
+    const date = new Date().toISOString().slice(0, 10);
+    return repo ? `${org}-${repo}-variables-secrets-${date}.xlsx` : `${org}-variables-secrets-${date}.xlsx`;
+  }
+
   /** The reverse of `ToLedgerItem`'s scope extraction — flattens a `ScopeRef` into the wire shape's separate `org`/`repo`/`env` fields. */
   private ToTargetRequest(level: ItemLevel, scope: ScopeRef): LedgerScopeTargetRequest {
     return { org: scope.org, repo: scope.repo, env: scope.env, level };

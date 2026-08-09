@@ -18,7 +18,17 @@ Mirrors `client/src/app/core`'s Gateway/Facade split conceptually — see `docs/
 for why each layer stays single-purpose:
 
 - `Program.cs` — minimal-API bootstrap: CORS (comma-separated `WEB_ORIGIN` env var pattern), the
-  `GET /health` check, DI registration, and route mapping (`MapAuthEndpoints()`).
+  `GET /health` check, DI registration, and route mapping (`MapAuthEndpoints()`). The CORS policy
+  also carries `.WithExposedHeaders("Content-Disposition")` — added for the ledger export feature
+  (see `Services/LedgerExportService` below): `Content-Disposition` isn't one of the handful of
+  response headers CORS exposes to browser JS by default (`Cache-Control`/`Content-Language`/
+  `Content-Type`/`Expires`/`Last-Modified`/`Pragma` only), so without this,
+  `BackendLedgerGateway.service.ts`'s `ExportLedger` could still download the file's bytes fine but
+  could never read the filename `GET /api/ledger/export` suggests via that header — `response.headers.get('Content-Disposition')`
+  would just come back `null` in the browser even though curl/Postman see it. Worth remembering if
+  CORS config here is ever touched again without this context: removing that exposed header doesn't
+  break the export, it just silently degrades every downloaded filename to the gateway's
+  locally-recomputed fallback.
 - `Auth/` — the stateless bearer-token pass-through (`IBearerTokenAccessor` /
   `HttpContextBearerTokenAccessor`, extracts the incoming `Authorization: Bearer` header per
   request; `GitHub/GitHubClientFactory` attaches the same token to outbound Octokit calls) and the
@@ -47,7 +57,12 @@ for why each layer stays single-purpose:
   endpoint per operation with internal `kind` branching rather than separate per-kind endpoints —
   see `Services/CopyService`/`Services/DeleteEverywhereService` below). `PUT /api/ledger/variables`
   (upsert-by-name) is gone as of Phase 6: it existed only for the old client-side
-  `CopyFacade.CopyTo`'s variable branch, which now calls `POST /api/ledger/copy` instead.
+  `CopyFacade.CopyTo`'s variable branch, which now calls `POST /api/ledger/copy` instead. A
+  post-migration addition, `GET /api/ledger/export` (same `org`/`repo` query params as `GET
+  /api/ledger`) returns a downloadable `.xlsx` workbook of the scope's ledger via `Results.File(...)`
+  — see `Services/LedgerExportService` below for what it renders and why; it shares `GET
+  /api/ledger`'s `LedgerUnavailableException` local-catch-to-502 handling exactly, so an export
+  fails the same way the read screen does rather than silently producing an empty/misleading file.
   `RunnersEndpoints.cs` (the Runners vertical, live as
   of Phase 4) maps `GET /api/runners` — self-hosted runners for the dashboard's runners panel, with
   an optional `repo` query param covering both an org-only scope (omitted) and a repo scope
@@ -169,6 +184,39 @@ for why each layer stays single-purpose:
   fallthrough. Both are registered `AddScoped`, not `AddSingleton` — unlike
   `WorkflowRunCleanupService` above, no state needs to survive between requests, since
   `Task.WhenAll` fanning out within one request/one DI scope is sufficient.
+  `LedgerExportService` (a post-migration addition, not part of the original phased rollout — see
+  `docs/Architecture.md`'s note after "The ASP.NET Core migration" section) renders `GET
+  /api/ledger`'s already-computed `LedgerService.GetLedgerAsync` result as a downloadable `.xlsx`
+  workbook rather than duplicating the fan-out/classification logic, matching this backend's
+  established "extend by composing an existing Service" pattern (`CopyService`/
+  `DeleteEverywhereService` above both do the same against `ItemMutationService`). Items are grouped
+  into one worksheet per level — Organization, Repository, then one sheet per environment, in the
+  order they first appear in the ledger response, not alphabetically — and a level with zero items
+  gets no sheet at all, mirroring `Ledger.component.ts`'s own `GroupItems` behavior on the live
+  screen. Every secret row's `Value` cell is the literal string
+  `"Write-only — GitHub never returns secret values"` (`LedgerExportService.SecretValueMarker`)
+  rather than blank or omitted — this app's "honest about secrets" design language (see the root
+  README's Features list and `docs/Architecture.md`'s dedicated section) extended to a static file
+  that has no UI copy to lean on. A variable/secret's org-level `Visibility` (all/private/selected)
+  rides straight through from `LedgerItemResponse.Visibility`, already populated by
+  `LedgerService`/`ItemMutationService` upstream — this Service doesn't compute it itself.
+  `CreatedAt`/`UpdatedAt` are written as real Excel date cells (`XLCellValue` has no
+  `DateTimeOffset` overload, so each is converted to a UTC `DateTime` first, since GitHub's
+  timestamps are already UTC-sourced) with an explicit `yyyy-mm-dd hh:mm:ss` format, not
+  pre-formatted strings, so a downloaded sheet stays sortable/filterable in Excel. If the ledger read
+  came back with any `partialErrors`/`lockedSections`, a `Notes` sheet lists them (`Type`/`Detail`
+  columns) — a downloaded file has no dismissable partial-error banner the way the live screen does,
+  so this is how a missing environment sheet reads as a permissions gap instead of a silent bug.
+  One edge case gets a dedicated fallback: ClosedXML's `XLWorkbook.SaveAs` throws if a workbook ends
+  up with zero worksheets, which a genuinely empty-but-fully-accessible scope (no variables/secrets
+  anywhere, nothing locked, nothing errored) would otherwise produce — `ExportAsync` adds one
+  explanatory "No variables or secrets found in this scope." sheet in that case rather than letting
+  the save throw. Uses `ClosedXML` (MIT-licensed) rather than the more commonly reached-for
+  `EPPlus`: `EPPlus` moved to a commercial Polyform Noncommercial license as of its v5 release,
+  which is free for noncommercial use only, whereas this project has no such restriction on how it
+  or a fork of it may be used — `ClosedXML` stays MIT throughout, matching the license posture of
+  every other dependency already in this `.csproj` (`Octokit`, `Sodium.Core`,
+  `Swashbuckle.AspNetCore`), so it was the only real choice, not a coin flip.
 - `GitHub/` — Octokit-based outbound client wrapper(s). `GitHubClientFactory` builds an
   Octokit `IGitHubClient` credentialed with the current request's bearer token — the shared entry
   point every migration vertical's GitHub-calling code goes through. Its construction logic now

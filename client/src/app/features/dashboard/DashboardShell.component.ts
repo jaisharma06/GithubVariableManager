@@ -10,6 +10,7 @@ import { ScopesFacade } from '../../core/facades/ScopesFacade';
 import type { ItemLevel, LedgerItem } from '../../core/Types';
 import type { DashboardScope } from '../../core/Types';
 import { AvatarComponent } from '../../shared/components/Avatar.component';
+import { ButtonComponent } from '../../shared/components/Button.component';
 import { ConfirmDialogComponent } from '../../shared/components/ConfirmDialog.component';
 import { RateLimitIndicatorComponent } from '../../shared/components/RateLimitIndicator.component';
 import { CompareViewComponent } from '../compare/CompareView.component';
@@ -40,6 +41,7 @@ type EditorState = { mode: 'create'; level?: ItemLevel; env?: string } | { mode:
     RunnersPanelComponent,
     RenameEnvironmentDialogComponent,
     AvatarComponent,
+    ButtonComponent,
     RateLimitIndicatorComponent,
     ConfirmDialogComponent,
     LedgerComponent,
@@ -98,6 +100,8 @@ export class DashboardShellComponent {
   protected readonly copyTarget = signal<LedgerItem | null>(null);
   protected readonly deleteTarget = signal<LedgerItem | null>(null);
   protected readonly deleteError = signal<string | null>(null);
+  protected readonly exporting = signal(false);
+  protected readonly exportError = signal<string | null>(null);
 
   // environmentsFacade/itemMutationsFacade themselves stay private (DI dependencies aren't part
   // of this component's template-facing API) — just their pending signals are re-exposed for the
@@ -186,5 +190,27 @@ export class DashboardShellComponent {
   protected HandleDisconnect(): void {
     this.authService.SignOut();
     void this.router.navigateByUrl('/connect');
+  }
+
+  protected async HandleExport(): Promise<void> {
+    this.exportError.set(null);
+    this.exporting.set(true);
+    try {
+      const { blob, filename } = await this.ledgerFacade.ExportLedger(this.scope().org, this.scope().repo);
+      this.TriggerDownload(blob, filename);
+    } catch (err) {
+      this.exportError.set(err instanceof Error ? err.message : 'GitHub rejected this request.');
+    } finally {
+      this.exporting.set(false);
+    }
+  }
+
+  private TriggerDownload(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 }

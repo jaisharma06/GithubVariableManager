@@ -30,6 +30,8 @@ export interface ILedgerGateway {
     options?: PutSecretOptions,
   ): Promise<CopyResult[]>;
   DeleteEverywhere(kind: ItemKind, name: string, targets: DeleteEverywhereTarget[]): Promise<DeleteEverywhereResult[]>;
+  /** Downloads the current scope's ledger as an `.xlsx` workbook — `GET /api/ledger/export`. */
+  ExportLedger(org: string, repo?: string): Promise<{ blob: Blob; filename: string }>;
 }
 
 export const LEDGER_GATEWAY = new InjectionToken<ILedgerGateway>('LEDGER_GATEWAY');

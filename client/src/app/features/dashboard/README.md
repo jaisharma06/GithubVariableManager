@@ -16,7 +16,17 @@
   `CopyItemDialogComponent` (`features/ledger/CopyItemDialog.component.ts`). `CompareViewComponent`
   and `WorkflowsViewComponent` each own their own equivalent dialog state internally rather than
   routing through this shell — see `features/compare/README.md` / `features/workflows/README.md`
-  for why.
+  for why. An **Export** button sits in the header next to `<app-rate-limit-indicator />`, visible
+  across every view (List/Compare/Workflows), not inside `LedgerComponent`'s own filter toolbar —
+  export downloads the whole active scope's ledger (every accessible level, one sheet each) as an
+  `.xlsx` workbook via `LedgerFacade.ExportLedger`, independent of whatever filters happen to be
+  applied to the on-screen list, so it belongs at the scope level, not the filtered-view level.
+  `HandleExport()` follows the same `signal`-pair loading-state pattern as the delete/rename flows
+  above (`exporting`/`exportError` instead of a shared mutation's `isPending`/`error`, since
+  `ExportLedger` is a plain method, not an `injectMutation` — see `core/facades/README.md`'s
+  `LedgerFacade.ts` entry for why) and a private `TriggerDownload(blob, filename)` — an object URL +
+  a temporary, immediately-clicked-and-discarded `<a download>` anchor, the first place in this
+  codebase that triggers a browser file download, so there was no prior in-repo pattern to reuse.
 - **`ScopeSidebar.component.ts`/`.html`** — org/repo header, environment list with per-environment
   rename/delete affordances, "+ New environment" inline form. Injects `EnvironmentsFacade` directly
   (not solely via `output()`) for the create-environment flow — documented in a comment on the

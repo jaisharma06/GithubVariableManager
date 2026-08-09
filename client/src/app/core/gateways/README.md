@@ -26,7 +26,14 @@ see `docs/Architecture.md`'s "Gateway/Adapter" pattern entry for the full ration
   Reuses `CopyTarget`/`CopyResult`/`DeleteEverywhereTarget`/`DeleteEverywhereResult` from
   `core/facades/CopySupport.ts` for those shapes, and has a private `ToTargetRequest` mapper
   (the reverse of `ToLedgerItem`'s scope extraction) flattening a `ScopeRef` into the wire shape's
-  separate `org`/`repo`/`env` fields.
+  separate `org`/`repo`/`env` fields. Also covers `ExportLedger(org, repo?)` — `GET
+  /api/ledger/export`, requested with `responseType: 'blob'`/`observe: 'response'` so the response's
+  headers are reachable, not just its body. Filename resolution reads the response's
+  `Content-Disposition` header (`filename="..."`) but never trusts it blindly: a private
+  `FilenameFrom` falls back to recomputing the same `{org}[-repo]-variables-secrets-{date}.xlsx`
+  format `api/`'s `LedgerExportService.BuildFilename` builds server-side, so a header-parsing edge
+  case (a proxy stripping it, an unexpected quoting style) never blocks the actual download — only
+  the suggested filename degrades.
 - `ISecretsGateway.ts` / `BackendSecretsGateway.service.ts` — talks to the `api/` ASP.NET Core
   backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`), not `api.github.com` (Phase 3b).
   Sends a secret's plaintext value directly — sealing (public-key fetch + libsodium sealed-box

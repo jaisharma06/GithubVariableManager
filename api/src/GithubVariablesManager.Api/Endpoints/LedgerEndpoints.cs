@@ -77,6 +77,38 @@ public static class LedgerEndpoints
             .Produces<ErrorResponse>(401)
             .Produces<ErrorResponse>(502);
 
+        group.MapGet("/export", async (string? org, string? repo, IBearerTokenAccessor tokenAccessor, LedgerExportService ledgerExportService) =>
+        {
+            if (tokenAccessor.GetToken() is null)
+            {
+                return Results.Json(new ErrorResponse("Missing bearer token."), statusCode: 401);
+            }
+            if (string.IsNullOrWhiteSpace(org))
+            {
+                return Results.Json(new ErrorResponse("Missing org."), statusCode: 400);
+            }
+
+            try
+            {
+                var (content, filename) = await ledgerExportService.ExportAsync(org, repo);
+                return Results.File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileDownloadName: filename);
+            }
+            catch (LedgerUnavailableException ex)
+            {
+                // Same local-catch reasoning as GET "" above — fail the export the same way the
+                // read endpoint fails when every fan-out job is locked/broken, rather than
+                // producing an empty/confusing file.
+                return Results.Json(new ErrorResponse(ex.Message), statusCode: 502);
+            }
+        })
+            .WithName("ExportLedger")
+            .WithTags("Ledger")
+            .WithSummary("Export the current scope's ledger (variables + secrets) as a downloadable .xlsx workbook, one sheet per level.")
+            .Produces(200, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            .Produces<ErrorResponse>(400)
+            .Produces<ErrorResponse>(401)
+            .Produces<ErrorResponse>(502);
+
         group.MapPost("/variables", async (CreateVariableRequest request, IBearerTokenAccessor tokenAccessor, ItemMutationService itemMutationService) =>
         {
             if (tokenAccessor.GetToken() is null)

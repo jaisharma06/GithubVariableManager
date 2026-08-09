@@ -97,6 +97,61 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
     }
 
     [Fact]
+    public async Task GetExport_ValidRequest_ReturnsValidXlsxWorkbook()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"V1","value":"v","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.GetAsync("/api/ledger/export?org=octo-org");
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("octo-org-variables-secrets-", response.Content.Headers.ContentDisposition?.FileNameStar ?? response.Content.Headers.ContentDisposition?.FileName);
+
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        Assert.NotEmpty(bytes);
+
+        // Strong end-to-end check: reopen the actual returned bytes with ClosedXML itself.
+        using var workbook = new ClosedXML.Excel.XLWorkbook(new MemoryStream(bytes));
+        Assert.Contains("Organization", workbook.Worksheets.Select(w => w.Name));
+    }
+
+    [Fact]
+    public async Task GetExport_MissingBearerToken_Returns401()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/ledger/export?org=octo-org");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetExport_MissingOrg_Returns400()
+    {
+        var client = AuthedClient(WithFakeGitHubClient(new FakeHttpMessageHandler()));
+
+        var response = await client.GetAsync("/api/ledger/export");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetExport_EveryJobFails_Returns502()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.InternalServerError, """{"message":"Boom1"}""")
+            .Enqueue(HttpStatusCode.InternalServerError, """{"message":"Boom2"}""");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.GetAsync("/api/ledger/export?org=octo-org");
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+    }
+
+    [Fact]
     public async Task PostVariable_ValidRequest_Creates()
     {
         var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.Created, "{}");

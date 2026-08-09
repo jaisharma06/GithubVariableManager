@@ -76,9 +76,16 @@
             </button>
           </div>
         }
+        <app-button variant="secondary" size="sm" [disabled]="exporting()" (click)="HandleExport()">
+          {{ exporting() ? 'Exporting…' : 'Export' }}
+        </app-button>
         <app-rate-limit-indicator />
       </div>
     </header>
+
+    @if (exportError()) {
+      <p class="border-b border-line bg-danger-dim px-6 py-2 text-xs text-danger">{{ exportError() }}</p>
+    }
 
     <main class="flex flex-1 flex-col gap-4 overflow-hidden p-6">
       @if (viewMode() === 'compare' && scope().repo) {

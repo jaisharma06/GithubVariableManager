@@ -23,4 +23,13 @@ export class LedgerFacade {
       enabled: !!this.authService.token() && !!scope(),
     }));
   }
+
+  /**
+   * Deliberately not an `injectQuery`/`injectMutation` field — a one-shot imperative action with
+   * no cache-worthy state, mirroring `WorkflowsFacade.DeleteRuns`'s existing precedent. The caller
+   * owns its own pending signal.
+   */
+  async ExportLedger(org: string, repo?: string): Promise<{ blob: Blob; filename: string }> {
+    return this.ledgerGateway.ExportLedger(org, repo);
+  }
 }

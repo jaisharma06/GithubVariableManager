@@ -41,6 +41,12 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   `api/Services/LedgerService.cs`. `DashboardShellComponent` still queries `EnvironmentsFacade`/
   `ScopesFacade` directly for its own needs (the sidebar's environment list, the header's
   `showOrgLevel`) — that usage is unrelated to this Facade and unaffected by the shrink.
+  `ExportLedger(org, repo?)` is a plain `async` passthrough to `ILedgerGateway.ExportLedger`,
+  deliberately **not** an `injectQuery`/`injectMutation` field: it's a one-shot imperative download
+  with no cache-worthy state (nothing about "did I export" belongs in the TanStack Query cache), the
+  same reasoning `WorkflowsFacade.DeleteRuns` already established for this Facade's start+poll bulk
+  delete — the caller (`DashboardShellComponent`) owns its own `exporting`/`exportError` pending
+  signals rather than reading `isPending`/`error` off a mutation object.
 - **`ItemMutationsFacade.ts`** — six `injectMutation` fields: `createVariable`, `updateVariable`,
   `deleteVariable`, `putSecret`, `renameSecret`, `deleteSecret`. Each has `onMutate`/`onError` doing
   an optimistic patch of the ledger cache (via private `SnapshotLedger`/`RestoreLedger`/

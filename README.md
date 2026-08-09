@@ -26,6 +26,7 @@ This tool connects to GitHub with your own credentials and gives you one filtera
 - **Run detail and rerun** — click any run to open its full detail: per-job status with each job's ordered steps (a job that didn't finish cleanly opens automatically; a clean one stays collapsed), and a one-click "Rerun" button — no confirmation needed, since rerunning a run is reversible and low-stakes, unlike deleting run history.
 - **Org-secret visibility control** — choose whether a new organization secret is available to all repos, private repos only, or a hand-picked selection.
 - **Honest about secrets** — secret values are never fetched or displayed, because GitHub doesn't allow it; the UI explains why instead of pretending otherwise, everywhere that constraint matters (copy, rename, compare).
+- **Export to Excel** — download the current scope's variables and secrets as an `.xlsx` workbook, one sheet per accessible level (organization, repository, each environment) — empty levels are skipped, and inaccessible/errored ones are listed on a `Notes` sheet instead of silently vanishing. Secret rows show a write-only marker instead of a value, the same "honest about secrets" rule the rest of the app follows.
 - **Nothing persisted server-side** — no database, in `client/` or `api/` alike; your token lives
   only in your browser's local storage, never on disk anywhere else, and is only ever sent to this
   app's own `api/` backend, which forwards it to GitHub per-request and never stores it.
@@ -194,7 +195,9 @@ See [`docs/`](./docs/) for how the app is built:
 
 Angular 19 · TypeScript · Tailwind CSS · `@tanstack/angular-query-experimental` · Angular Router ·
 ASP.NET Core (.NET 9) · Octokit.NET · `Sodium.Core` (server-side secret encryption, per GitHub's
-documented sealed-box scheme) · `Swashbuckle.AspNetCore` (Swagger/OpenAPI, dev-only)
+documented sealed-box scheme) · `Swashbuckle.AspNetCore` (Swagger/OpenAPI, dev-only) · `ClosedXML`
+(server-side `.xlsx` export, MIT-licensed — chosen over the more commonly reached-for `EPPlus`,
+which moved to a commercial Polyform Noncommercial license as of v5)
 
 **ASP.NET Core is this app's backend, in full.** Every GitHub API call (variables, secrets,
 environments, runners, workflows, org/repo scopes, sign-in) and every piece of orchestration logic

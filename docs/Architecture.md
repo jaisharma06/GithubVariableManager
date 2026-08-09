@@ -385,6 +385,28 @@ live GitHub credentials were available in this environment. Automated build/lint
 fakes/mocks was the practical verification ceiling throughout, and that remains a documented,
 honest limitation rather than a failure to record.
 
+## Post-migration feature additions
+
+The ASP.NET Core migration above is closed, phase-numbered work; new features landing in `api/`
+after it don't get a new phase number — they're additions built on top of the now-complete
+backend-owns-all-logic shape, not another step of moving logic *out of* `client/`. Documented here
+rather than silently left out of this file's narrative:
+
+- **Ledger export to Excel** — `GET /api/ledger/export` (`Endpoints/LedgerEndpoints.cs`) renders the
+  same merged read `GET /api/ledger` already computes (`Services/LedgerService.GetLedgerAsync`) as a
+  downloadable `.xlsx` workbook, one worksheet per accessible level (organization/repository/each
+  environment), via a new `Services/LedgerExportService.cs` (`ClosedXML`) — see `api/README.md`'s
+  `Services/` entry for the full rendering design (secret rows carry an explicit write-only marker
+  rather than a value or a blank, matching "Hard constraint that shapes the UI" above; a `Notes`
+  sheet carries partial-error/locked-section detail a static file has no banner UI to show
+  otherwise). This is new business logic in `api/` — deciding how to group/label/mark ledger data
+  for export — not a rendering concern, so it correctly lives in a Service rather than being
+  composed client-side from the existing `GET /api/ledger` response; `client/`'s
+  `DashboardShellComponent` only triggers the download and never reshapes the file's contents
+  itself. `LedgerFacade.ExportLedger`/`ILedgerGateway.ExportLedger` follow this Facade's/Gateway's
+  existing shape exactly, so this required no new pattern at the `client/` layer — it's additive to
+  an already-complete vertical, not a new one.
+
 ## History
 
 This app was originally built in React and ported to Angular; the original implementation is kept

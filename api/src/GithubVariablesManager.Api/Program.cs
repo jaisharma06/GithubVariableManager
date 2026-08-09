@@ -17,7 +17,11 @@ var webOrigins = string.IsNullOrWhiteSpace(webOriginsSetting)
 
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy => policy.WithOrigins(webOrigins).AllowAnyHeader().AllowAnyMethod());
+    // Content-Disposition isn't a CORS-safelisted response header by default — without explicitly
+    // exposing it, client/'s BackendLedgerGateway.ExportLedger couldn't read the filename the
+    // server computed (GET /api/ledger/export), even though the header is present on the wire
+    // (curl/Postman would see it fine; only browser JS is CORS-restricted this way).
+    options.AddDefaultPolicy(policy => policy.WithOrigins(webOrigins).AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("Content-Disposition"));
 });
 
 // Auth plumbing — stateless bearer-token pass-through + centralized permission-error shape.
@@ -80,6 +84,12 @@ builder.Services.AddScoped<EnvironmentRenameService>();
 // Task.WhenAll fan-out within one request is sufficient.
 builder.Services.AddScoped<CopyService>();
 builder.Services.AddScoped<DeleteEverywhereService>();
+
+// Ledger export (.xlsx download) — reuses LedgerService.GetLedgerAsync in-process, zero
+// duplicated fan-out/classification logic, via ClosedXML (MIT licensed; EPPlus's Polyform
+// Noncommercial license is a real risk for this project, and the npm xlsx package has known
+// unpatched security advisories in its npm-published build, so both were rejected).
+builder.Services.AddScoped<LedgerExportService>();
 
 // Swagger/OpenAPI (dev-only) — see api/README.md "Local dev". Swashbuckle.AspNetCore, not the
 // first-party Microsoft.AspNetCore.OpenApi, because this needs the actual interactive Swagger UI,
