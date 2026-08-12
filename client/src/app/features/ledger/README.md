@@ -33,6 +33,35 @@
   `ItemMutationService.UpsertVariableAsync` in-process); `CopyFacade`/this component don't branch
   on it — the `existing`-item lookup here is purely for the overwrite/matches/not-set UI hint, not
   for picking a mutation.
+  Cross-repo/cross-org destinations (a "+ Add another repo/org…" progressive-disclosure toggle
+  embedding `CrossRepoTargetPickerComponent`) are additive on top of this: `BuildCandidates` itself
+  is completely untouched — it still only produces same-org/repo candidates — and the picked
+  cross-repo targets live in a separate `crossRepoCandidates` signal, with `candidates` computed as
+  `[...BuildCandidates(...), ...crossRepoCandidates()]`. `HandleTargetPicked` guards against picking
+  the source's own scope or a duplicate of an existing candidate (`SameScope`); each cross-repo row
+  gets a "×" remove control (`RemoveCrossRepoCandidate`) that same-repo rows don't. The one genuine
+  new risk cross-repo introduces: `CopyFacade.CopyTo`'s `options` (secret `visibility`/
+  `selectedRepositoryIds`) is one shared value for the *whole batch*, not per-target — invisible
+  before, since same-repo candidates only ever include one organization-level candidate in the
+  user's current org, but reachable once two different destination orgs can both be
+  organization-level secret targets in the same submit. `HandleSubmit` guards this explicitly: it
+  blocks a submit that would need `'selected'`-visibility for secrets at organization level in two
+  *different* destination orgs at once, since there's nowhere for the second repo list to go.
+- **`CrossRepoTargetPicker.component.ts`/`.html`** — the picker-only widget `CopyItemDialogComponent`
+  embeds for a cross-repo/cross-org destination: org/repo search (filtered from
+  `ScopesFacade.MyOrgsQuery()`/`MyReposQuery()`), level selection (organization/repository/
+  environment, gated by `ScopesFacade.IsOrgAccountQuery` so org-level isn't offered for a repo owned
+  by a personal account), an environment `<select>` (`EnvironmentsFacade.EnvironmentsQuery`), and —
+  only for a secret being pushed to an organization-level target — a visibility/selected-repos
+  picker (`ScopesFacade.OrgReposQuery`). That visibility-picker logic is deliberately duplicated from
+  `ItemEditorPanelComponent` rather than extracted into a shared component — the smaller/safer choice
+  for this change; a shared extraction is a legitimate follow-up, just an explicitly deferred one.
+  Also independently loads the picked destination's own ledger (`LedgerFacade.LedgerQuery`, scoped to
+  that org/repo, not whatever scope the dashboard currently has open) so it can hand back an accurate
+  not-set/already-set/will-overwrite/already-matches hint the moment a target is added, without
+  `CopyItemDialogComponent` needing a second lookup mechanism. Emits one `targetPicked:
+  {level, scope, options?, existing?}` event and never calls `CopyFacade` itself — Single
+  Responsibility, it only decides *what target*, never performs the copy.
 
 ## Wired into `DashboardShellComponent`
 
@@ -49,6 +78,10 @@ dependencies, so their specs don't need `ProvideTestQueryClient()` or a seeded s
 all of its data arrives via `@Input()`, not a Facade, so it's tested the same lightweight way.
 `CopyItemDialogComponent` does need the full `ProvideTestQueryClient()`/`SeedFakeSession()` set,
 since `CopyFacade` sits on top of real mutations — see `features/item-editor/README.md`'s testing
-notes, which apply here identically. Only `DashboardShellComponent`'s spec (which actually renders
-`app-ledger` behind a real `LedgerFacade.LedgerQuery`) needs the full `WaitFor` machinery described
-in `core/testing/README.md`.
+notes, which apply here identically. `CrossRepoTargetPickerComponent` needs the same set again (it
+injects `ScopesFacade`/`EnvironmentsFacade`/`LedgerFacade`, all real queries), so its own spec is
+written the same way rather than shallow-rendered with a stub. Since both of those async queries
+have to resolve before a cross-repo target can actually be added, `CopyItemDialogComponent`'s
+cross-repo tests (and `CrossRepoTargetPickerComponent`'s own spec) now use the `WaitFor` machinery
+described in `core/testing/README.md` too — that's no longer exclusive to
+`DashboardShellComponent`'s spec.

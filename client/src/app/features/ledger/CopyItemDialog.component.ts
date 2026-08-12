@@ -2,8 +2,10 @@ import { AfterViewInit, Component, ElementRef, HostListener, OnInit, ViewChild, 
 import { CopyFacade } from '../../core/facades/CopyFacade';
 import type { CopyResult } from '../../core/facades/CopySupport';
 import { SameScope } from '../../core/facades/LedgerSupport';
+import type { PutSecretOptions } from '../../core/gateways/ISecretsGateway';
 import type { DashboardScope, GithubEnvironment, ItemLevel, LedgerItem, ScopeRef } from '../../core/Types';
 import { ButtonComponent } from '../../shared/components/Button.component';
+import { CrossRepoTargetPickerComponent, type CrossRepoTargetPicked } from './CrossRepoTargetPicker.component';
 
 interface Candidate {
   key: string;
@@ -11,6 +13,8 @@ interface Candidate {
   level: ItemLevel;
   scope: ScopeRef;
   existing?: LedgerItem;
+  /** Only set for a cross-repo/cross-org organization-level secret target — the visibility choice made in CrossRepoTargetPickerComponent. */
+  options?: PutSecretOptions;
 }
 
 interface CopyFailure {
@@ -60,6 +64,17 @@ function LabelFor(candidates: Candidate[], result: CopyResult): string {
   return match?.label ?? result.target.level;
 }
 
+/** Label for a candidate added via CrossRepoTargetPickerComponent — includes org/repo since it's not implied by the currently-open scope like BuildCandidates' labels are. */
+function CrossRepoLabel(level: ItemLevel, scope: ScopeRef): string {
+  if (level === 'organization') return `Organization · ${scope.org}`;
+  if (level === 'repository') return `Repository · ${scope.org}/${scope.repo}`;
+  return `${scope.org}/${scope.repo} · ${scope.env}`;
+}
+
+function CrossRepoKey(level: ItemLevel, scope: ScopeRef): string {
+  return `cross:${scope.org}/${scope.repo ?? ''}/${level}/${scope.env ?? ''}`;
+}
+
 /**
  * Port of web/src/features/ledger/CopyItemDialog.tsx. `value` is seeded in ngOnInit rather than a
  * field initializer for the same reason as ItemEditorPanelComponent — see that component's doc
@@ -67,7 +82,7 @@ function LabelFor(candidates: Candidate[], result: CopyResult): string {
  */
 @Component({
   selector: 'app-copy-item-dialog',
-  imports: [ButtonComponent],
+  imports: [ButtonComponent, CrossRepoTargetPickerComponent],
   templateUrl: './CopyItemDialog.component.html',
 })
 export class CopyItemDialogComponent implements OnInit, AfterViewInit {
@@ -89,12 +104,18 @@ export class CopyItemDialogComponent implements OnInit, AfterViewInit {
   protected readonly error = signal<string | null>(null);
   protected readonly failures = signal<CopyFailure[] | null>(null);
 
+  /** Targets added via CrossRepoTargetPickerComponent — outside BuildCandidates' same-org/repo scan. */
+  protected readonly crossRepoCandidates = signal<Candidate[]>([]);
+  protected readonly crossRepoOpen = signal(false);
+  protected readonly crossRepoError = signal<string | null>(null);
+
   protected readonly isSecret = computed(() => this.item().kind === 'secret');
   protected readonly isPending = this.copyFacade.isPending;
 
-  protected readonly candidates = computed(() =>
-    BuildCandidates(this.item(), this.scope(), this.environments(), this.showOrgLevel(), this.items()),
-  );
+  protected readonly candidates = computed(() => [
+    ...BuildCandidates(this.item(), this.scope(), this.environments(), this.showOrgLevel(), this.items()),
+    ...this.crossRepoCandidates(),
+  ]);
   protected readonly allSelected = computed(
     () => this.candidates().length > 0 && this.selected().size === this.candidates().length,
   );
@@ -135,6 +156,46 @@ export class CopyItemDialogComponent implements OnInit, AfterViewInit {
     return !this.isSecret() && candidate.existing?.value === this.value();
   }
 
+  protected IsCrossRepo(candidate: Candidate): boolean {
+    return candidate.key.startsWith('cross:');
+  }
+
+  protected ToggleCrossRepoOpen(): void {
+    this.crossRepoOpen.update((v) => !v);
+  }
+
+  protected HandleTargetPicked(target: CrossRepoTargetPicked): void {
+    this.crossRepoError.set(null);
+    const item = this.item();
+    const isSelf = target.level === item.level && SameScope(target.scope, item.scope);
+    const isDuplicate = this.candidates().some((c) => c.level === target.level && SameScope(c.scope, target.scope));
+    if (isSelf || isDuplicate) {
+      this.crossRepoError.set('That destination is already in the list.');
+      return;
+    }
+
+    const key = CrossRepoKey(target.level, target.scope);
+    const candidate: Candidate = {
+      key,
+      label: CrossRepoLabel(target.level, target.scope),
+      level: target.level,
+      scope: target.scope,
+      existing: target.existing,
+      options: target.options,
+    };
+    this.crossRepoCandidates.update((prev) => [...prev, candidate]);
+    this.selected.update((prev) => new Set(prev).add(key));
+  }
+
+  protected RemoveCrossRepoCandidate(key: string): void {
+    this.crossRepoCandidates.update((prev) => prev.filter((c) => c.key !== key));
+    this.selected.update((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }
+
   protected async HandleSubmit(event: Event): Promise<void> {
     event.preventDefault();
     this.error.set(null);
@@ -154,12 +215,32 @@ export class CopyItemDialogComponent implements OnInit, AfterViewInit {
     }
 
     const candidates = this.candidates();
-    const targets = candidates
-      .filter((c) => selected.has(c.key))
-      .map((c) => ({ level: c.level, scope: c.scope }));
+    const selectedCandidates = candidates.filter((c) => selected.has(c.key));
+
+    // CopyFacade.CopyTo's `options` is one shared value for the whole batch, not per-target — see
+    // CrossRepoTargetPickerComponent's doc comment. That's invisible for same-repo candidates
+    // (BuildCandidates only ever produces one organization-level candidate), but cross-org targets
+    // make it reachable: block a submit that would need two different 'selected'-visibility repo
+    // lists at once, since there's nowhere for the second one to go.
+    let options: PutSecretOptions | undefined;
+    if (this.isSecret()) {
+      const orgCandidatesWithOptions = selectedCandidates.filter((c) => c.level === 'organization' && c.options);
+      const selectedVisibilityOrgs = new Set(
+        orgCandidatesWithOptions.filter((c) => c.options?.visibility === 'selected').map((c) => c.scope.org),
+      );
+      if (selectedVisibilityOrgs.size > 1) {
+        this.error.set(
+          'Selected-repository visibility can only target one organization per copy — split this into separate copies.',
+        );
+        return;
+      }
+      options = orgCandidatesWithOptions[0]?.options;
+    }
+
+    const targets = selectedCandidates.map((c) => ({ level: c.level, scope: c.scope }));
 
     const item = this.item();
-    const outcome = await this.copyFacade.CopyTo(item.kind, item.name, value, targets);
+    const outcome = await this.copyFacade.CopyTo(item.kind, item.name, value, targets, options);
     if (outcome.every((r) => r.ok)) {
       this.closed.emit();
       return;

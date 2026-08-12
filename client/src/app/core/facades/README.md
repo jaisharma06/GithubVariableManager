@@ -69,7 +69,13 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   `onSuccess` invalidates the `['ledger']` query instead, the same tradeoff
   `EnvironmentsFacade.renameEnvironment` already made in Phase 3c when its 3-step client sequence
   collapsed to one backend call — hand-rolling an equivalent multi-target optimistic patch is
-  high-risk for low payoff, so a brief refetch flicker is accepted as an honest tradeoff.
+  high-risk for low payoff, so a brief refetch flicker is accepted as an honest tradeoff. Note this
+  Facade/its `targets`/`options` shape is unchanged by `CopyItemDialogComponent`'s cross-repo/
+  cross-org destination picker (`features/ledger/CrossRepoTargetPicker.component.ts`) — that
+  feature only widens what the dialog can *assemble* into `targets` before calling `CopyTo`; the
+  single-batch `options` value (one visibility/selected-repos choice per call) is exactly why the
+  dialog has to block a submit needing two different orgs' `'selected'`-visibility at once, rather
+  than something this Facade had to change to support.
 - **`LedgerSupport.ts`** — pure functions shared by `ItemMutationsFacade` (and the response-shaping
   types `ILedgerGateway`/`BackendLedgerGateway.service.ts` consume): `SameScope`, `ErrorMessage`,
   `OptimisticVariable`, `OptimisticSecret`; plus the `LedgerPartialError`/`LedgerLockedSection`/

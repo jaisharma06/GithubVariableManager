@@ -407,6 +407,21 @@ rather than silently left out of this file's narrative:
   existing shape exactly, so this required no new pattern at the `client/` layer — it's additive to
   an already-complete vertical, not a new one.
 
+- **Cross-repo/cross-org copy** — `CopyItemDialogComponent` (`features/ledger/`) can now add a copy
+  destination outside the org/repo currently open, via a new picker-only widget,
+  `CrossRepoTargetPickerComponent`. This is a pure `client/`-side composition, not a new backend
+  capability: `CopyFacade.CopyTo`/`ILedgerGateway.Copy`/`Services/CopyService.cs` are all unchanged
+  — the new component only assembles targets from existing read Facades already used elsewhere
+  (`ScopesFacade.MyOrgsQuery`/`MyReposQuery`/`OrgReposQuery`, `EnvironmentsFacade.EnvironmentsQuery`,
+  `LedgerFacade.LedgerQuery` scoped to the picked destination for an accurate overwrite/matches hint)
+  and hands the result to `CopyItemDialogComponent`'s existing submit path. The one new piece of
+  actual logic is client-side validation, not orchestration: `CopyFacade.CopyTo`'s `options`
+  (secret visibility/selected-repo list) is one value for the whole batch, so
+  `CopyItemDialogComponent.HandleSubmit` blocks a submit that would need `'selected'`-visibility for
+  organization-level secrets in two different destination orgs at once. See
+  `features/ledger/README.md` for the full design, including the deliberate choice to duplicate the
+  org-secret-visibility picker rather than extract it from `ItemEditorPanelComponent`.
+
 ## History
 
 This app was originally built in React and ported to Angular; the original implementation is kept

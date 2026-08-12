@@ -1,0 +1,137 @@
+<div class="space-y-3 rounded-md border border-line bg-ink/40 p-3">
+  @if (!pickedOrg() && !pickedRepo()) {
+    <input
+      [value]="query()"
+      (input)="HandleQueryInput($event)"
+      placeholder="Search organizations and repositories&hellip;"
+      spellcheck="false"
+      class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
+    />
+
+    <div class="max-h-40 space-y-3 overflow-y-auto">
+      @if (filteredOrgs().length > 0) {
+        <div>
+          <p class="mb-1 text-[11px] uppercase tracking-wider text-text-dim">Organizations</p>
+          <div class="overflow-hidden rounded-md border border-line">
+            @for (org of filteredOrgs(); track org.login) {
+              <button
+                type="button"
+                (click)="PickOrg(org.login)"
+                class="flex w-full items-center justify-between border-b border-line px-3 py-1.5 text-left text-sm last:border-b-0 hover:bg-panel-raised"
+              >
+                <span class="truncate font-mono text-text">{{ org.login }}</span>
+              </button>
+            }
+          </div>
+        </div>
+      }
+      @if (filteredRepos().length > 0) {
+        <div>
+          <p class="mb-1 text-[11px] uppercase tracking-wider text-text-dim">Repositories</p>
+          <div class="overflow-hidden rounded-md border border-line">
+            @for (repo of filteredRepos(); track repo.fullName) {
+              <button
+                type="button"
+                (click)="PickRepo(repo.owner, repo.name)"
+                class="flex w-full items-center justify-between border-b border-line px-3 py-1.5 text-left text-sm last:border-b-0 hover:bg-panel-raised"
+              >
+                <span class="truncate font-mono text-text">{{ repo.fullName }}</span>
+              </button>
+            }
+          </div>
+        </div>
+      }
+      @if (filteredOrgs().length === 0 && filteredRepos().length === 0) {
+        <p class="text-xs text-text-dim">No organizations or repositories matched.</p>
+      }
+    </div>
+  } @else {
+    <div class="flex items-center justify-between gap-2">
+      <p class="truncate font-mono text-sm text-text">
+        {{ pickedOrg() ? pickedOrg() : pickedRepo()!.owner + '/' + pickedRepo()!.name }}
+      </p>
+      <button type="button" (click)="ClearPick()" class="shrink-0 text-xs text-brand hover:underline">Change</button>
+    </div>
+
+    @if (pickedRepo()) {
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-text-dim">Level</span>
+        <select
+          class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text focus:border-brand focus:outline-none"
+          [value]="level()"
+          (change)="HandleLevelChange($event)"
+        >
+          @if (canOfferOrgLevel()) {
+            <option value="organization">Organization ({{ destinationOrg() }})</option>
+          }
+          <option value="repository">Repository ({{ destinationRepo() }})</option>
+          @if ((environmentsQuery.data() ?? []).length > 0) {
+            <option value="environment">Environment</option>
+          }
+        </select>
+      </label>
+
+      @if (level() === 'environment') {
+        <label class="block">
+          <span class="mb-1 block text-xs font-medium text-text-dim">Environment</span>
+          <select
+            class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text focus:border-brand focus:outline-none"
+            [value]="envName()"
+            (change)="HandleEnvNameChange($event)"
+          >
+            <option value="" disabled>Choose&hellip;</option>
+            @for (env of environmentsQuery.data() ?? []; track env.id) {
+              <option [value]="env.name">{{ env.name }}</option>
+            }
+          </select>
+        </label>
+      }
+    } @else {
+      <p class="font-mono text-xs text-text-dim">Organization &middot; {{ pickedOrg() }}</p>
+    }
+
+    @if (needsVisibilityPicker()) {
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-text-dim">Which repos can use this?</span>
+        <select
+          class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text focus:border-brand focus:outline-none"
+          [value]="visibility()"
+          (change)="HandleVisibilityChange($event)"
+        >
+          <option value="all">All repositories</option>
+          <option value="private">Private repositories</option>
+          <option value="selected">Selected repositories</option>
+        </select>
+        @if (visibility() === 'selected') {
+          <div class="mt-2 max-h-32 overflow-y-auto rounded-md border border-line">
+            @if (orgReposQuery.isLoading()) {
+              <p class="p-3 text-xs text-text-dim">Loading repositories&hellip;</p>
+            } @else {
+              @for (repo of orgReposQuery.data() ?? []; track repo.id) {
+                <label class="flex items-center gap-2 border-b border-line px-3 py-1.5 text-sm text-text last:border-b-0">
+                  <input type="checkbox" [checked]="selectedRepoIds().has(repo.id)" (change)="ToggleRepo(repo.id)" />
+                  <span class="font-mono text-xs">{{ repo.name }}</span>
+                </label>
+              }
+            }
+          </div>
+        }
+      </label>
+    }
+
+    @if (pickError()) {
+      <p class="text-xs text-danger">{{ pickError() }}</p>
+    }
+
+    <div class="flex items-center justify-between gap-2">
+      @if (ledgerQuery.isLoading()) {
+        <p class="text-xs text-text-dim">Checking existing values&hellip;</p>
+      } @else {
+        <span></span>
+      }
+      <app-button type="button" variant="primary" size="sm" (click)="HandleAddTarget()" [disabled]="addDisabled()">
+        Add destination
+      </app-button>
+    </div>
+  }
+</div>

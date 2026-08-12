@@ -49,18 +49,47 @@
                   <input type="checkbox" [checked]="selected().has(c.key)" (change)="Toggle(c.key)" />
                   <span class="truncate text-text">{{ c.label }}</span>
                 </span>
-                @if (!c.existing) {
-                  <span class="shrink-0 text-xs text-text-dim">not set</span>
-                } @else if (isSecret()) {
-                  <span class="shrink-0 text-xs text-text-dim">already set</span>
-                } @else if (AlreadyMatches(c)) {
-                  <span class="shrink-0 text-xs text-ok">already matches</span>
-                } @else {
-                  <span class="shrink-0 text-xs text-danger">will overwrite</span>
-                }
+                <span class="flex shrink-0 items-center gap-2">
+                  @if (!c.existing) {
+                    <span class="text-xs text-text-dim">not set</span>
+                  } @else if (isSecret()) {
+                    <span class="text-xs text-text-dim">already set</span>
+                  } @else if (AlreadyMatches(c)) {
+                    <span class="text-xs text-ok">already matches</span>
+                  } @else {
+                    <span class="text-xs text-danger">will overwrite</span>
+                  }
+                  @if (IsCrossRepo(c)) {
+                    <button
+                      type="button"
+                      (click)="RemoveCrossRepoCandidate(c.key)"
+                      title="Remove this destination"
+                      class="text-text-dim hover:text-danger"
+                    >
+                      &times;
+                    </button>
+                  }
+                </span>
               </label>
             }
           </div>
+        }
+      </div>
+
+      <div>
+        @if (!crossRepoOpen()) {
+          <button type="button" (click)="ToggleCrossRepoOpen()" class="text-xs text-brand hover:underline">
+            + Add another repo/org&hellip;
+          </button>
+        } @else {
+          <div class="mb-1.5 flex items-center justify-between">
+            <span class="text-xs font-medium text-text-dim">Add a destination outside this scope</span>
+            <button type="button" (click)="ToggleCrossRepoOpen()" class="text-xs text-text-dim hover:text-text">Hide</button>
+          </div>
+          <app-cross-repo-target-picker [item]="item()" (targetPicked)="HandleTargetPicked($event)" />
+          @if (crossRepoError()) {
+            <p class="mt-1 text-xs text-danger">{{ crossRepoError() }}</p>
+          }
         }
       </div>
 
