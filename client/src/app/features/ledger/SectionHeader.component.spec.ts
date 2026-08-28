@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { VariableClipboardService } from '../../core/services/VariableClipboardService';
 import { SectionHeaderComponent } from './SectionHeader.component';
 
 describe('SectionHeaderComponent', () => {
@@ -27,5 +28,26 @@ describe('SectionHeaderComponent', () => {
     (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
 
     expect(addSpy).toHaveBeenCalled();
+  });
+
+  it('hides the "Paste" affordance when the clipboard is empty', () => {
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).not.toContain('Paste');
+  });
+
+  it('shows "Paste" once something is copied, and emits pasteVariable when clicked', () => {
+    const clipboardService = TestBed.inject(VariableClipboardService);
+    clipboardService.CopyVariable('API_URL', 'https://example.com');
+    fixture.detectChanges();
+
+    const pasteSpy = jasmine.createSpy('pasteVariable');
+    fixture.componentInstance.pasteVariable.subscribe(pasteSpy);
+
+    const pasteButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find((b) =>
+      b.textContent?.includes('Paste'),
+    )!;
+    pasteButton.click();
+
+    expect(pasteSpy).toHaveBeenCalled();
   });
 });

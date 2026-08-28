@@ -27,7 +27,14 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   it, the old environment disappearing, all from one mutation) is high-risk for low payoff. Instead
   its `onSuccess` invalidates both the `['environments', …]` and `['ledger']` queries, mirroring
   `ItemMutationsFacade.renameSecret`'s `onSuccess` invalidation from Phase 3b exactly and accepting
-  a brief refetch flicker as an honest tradeoff.
+  a brief refetch flicker as an honest tradeoff. A later, non-phase-numbered addition,
+  `copyEnvironmentVariables`, is another shared `injectMutation` field: one
+  `ILedgerGateway.CopyEnvironmentVariables` call (`api/Services/EnvironmentVariableCopyService.cs`
+  does the listing/skip-if-exists/value-transform/per-variable-failure-isolation server-side).
+  Deliberately no optimistic `onMutate` here either, same reasoning as `renameEnvironment` — N
+  variables appearing at an arbitrary, possibly cross-repo/cross-org destination is high-risk to
+  hand-fake; `onSuccess` invalidates `['ledger']` broadly, accepting the same brief-flicker
+  tradeoff. Consumed by `features/dashboard/CopyEnvironmentDialog.component.ts`.
 - **`RunnersFacade.ts`** — `RunnersQuery(scope)`, `refetchInterval: 30_000`, `enabled: !!token &&
   !!scope()`. As of Phase 4 (the ASP.NET Core migration's Runners vertical), this Facade no longer
   branches on `scope().repo` to pick between `ListRepoRunners`/`ListOrgRunners` — it just forwards
@@ -117,7 +124,12 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   scope via `ItemMutationsFacade` directly, while a compare-view row deletes a name from *every*
   scope it's set in, which is what this Facade exists to batch.
 - **`CopySupport.ts`** — `CopyTarget`, `CopyResult`, `DeleteEverywhereTarget`,
-  `DeleteEverywhereResult` types shared between `CopyFacade` and `DeleteEverywhereFacade`.
+  `DeleteEverywhereResult` types shared between `CopyFacade` and `DeleteEverywhereFacade`. A later,
+  non-phase-numbered addition: `EnvironmentVariableCopyResult`/`EnvironmentVariableCopyFailure` —
+  the wire-shape port of `api/`'s `CopyEnvironmentVariablesResponse`/`VariableCopyFailureResponse`,
+  used by `ILedgerGateway.CopyEnvironmentVariables` and `EnvironmentsFacade.copyEnvironmentVariables`
+  (not `CopyFacade`/`CopyResult` above — a different operation shape, see the `EnvironmentsFacade.ts`
+  entry above and `docs/Architecture.md` for why).
 
 ## Design rationale: methods vs. fields for queries
 

@@ -63,6 +63,12 @@ for why each layer stays single-purpose:
   — see `Services/LedgerExportService` below for what it renders and why; it shares `GET
   /api/ledger`'s `LedgerUnavailableException` local-catch-to-502 handling exactly, so an export
   fails the same way the read screen does rather than silently producing an empty/misleading file.
+  A later, non-phase-numbered addition, `POST /api/ledger/environments/copy-variables`, sits on this
+  same route group next to `/environments/rename`: copies every variable from one environment into
+  another (same repo or cross-repo/cross-org), skipping any name already present at the destination
+  and substring-replacing the source environment's name with the destination's inside each copied
+  value — see `Services/EnvironmentVariableCopyService` below for the full design, including why
+  it's a sibling to `EnvironmentRenameService`/`CopyService` rather than an extension of either.
   `RunnersEndpoints.cs` (the Runners vertical, live as
   of Phase 4) maps `GET /api/runners` — self-hosted runners for the dashboard's runners panel, with
   an optional `repo` query param covering both an org-only scope (omitted) and a repo scope
@@ -184,6 +190,26 @@ for why each layer stays single-purpose:
   fallthrough. Both are registered `AddScoped`, not `AddSingleton` — unlike
   `WorkflowRunCleanupService` above, no state needs to survive between requests, since
   `Task.WhenAll` fanning out within one request/one DI scope is sufficient.
+  `EnvironmentVariableCopyService` (also a post-migration addition, `AddScoped` like `CopyService`/
+  `DeleteEverywhereService` above) copies every variable from one environment into another — a
+  **sibling** to `CopyService`, not an extension of it, even though both are batch operations on the
+  Ledger vertical: `CopyService`'s shape is one item -> N targets, always-overwrite; this Service's
+  shape is N variables -> one target, skip-if-exists, with a per-item value transform (a
+  case-sensitive, ordinal substring replace of the source environment's name with the destination's)
+  — different enough that folding it into `CopyService` would mean branching that service's
+  single-target/always-overwrite logic around an incompatible second shape rather than reusing it.
+  It's also the environment-scoped analog of `EnvironmentRenameService`'s outcome-reporting
+  philosophy: listing the source environment's variables is the one step allowed to fail as a soft,
+  reported failure (`CopyEnvironmentVariablesResponse.ListSourceError`, still `200 OK`) rather than a
+  5xx, mirroring `EnvironmentRenameService`'s `ListVariablesError` precedent exactly; every
+  subsequent per-variable create is isolated (one variable's `Octokit.ApiException` is added to
+  `Failures` and never aborts the batch), the same per-item isolation `CopyService`/
+  `EnvironmentRenameService` already use for their own per-item writes. Both source and destination
+  can be cross-repo/cross-org, since nothing in `GitHub/ActionsRestClient.cs` is repo-bound — but
+  both environments must already exist; there's no inline environment creation here. Calls
+  `ItemMutationService.CreateVariableAsync` in-process for each copy, so the create logic itself
+  isn't duplicated, matching this backend's established "extend by composing an existing Service"
+  pattern.
   `LedgerExportService` (a post-migration addition, not part of the original phased rollout — see
   `docs/Architecture.md`'s note after "The ASP.NET Core migration" section) renders `GET
   /api/ledger`'s already-computed `LedgerService.GetLedgerAsync` result as a downloadable `.xlsx`
@@ -294,6 +320,12 @@ for why each layer stays single-purpose:
   endpoint had zero remaining callers. The underlying method,
   `ItemMutationService.UpsertVariableAsync`, is unaffected and stays — `EnvironmentRenameService`
   and the new `CopyService` both still call it in-process.
+  A later, non-phase-numbered addition to `LedgerContracts.cs`: `CopyEnvironmentVariablesRequest`
+  (`SourceOrg`/`SourceRepo`/`SourceEnv`/`DestOrg`/`DestRepo`/`DestEnv`, all required) and
+  `CopyEnvironmentVariablesResponse` (`ListSourceError`/`Copied`/`Skipped`/`Failures`) — the wire
+  shapes for `POST /api/ledger/environments/copy-variables`, deliberately their own shape rather
+  than reusing `CopyRequest`/`CopyResponse` (see `Services/EnvironmentVariableCopyService` above for
+  why the two operations aren't the same shape).
 
 ## Stateless by design
 

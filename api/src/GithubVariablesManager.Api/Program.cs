@@ -78,6 +78,11 @@ builder.Services.AddScoped<SecretSealingService>();
 builder.Services.AddScoped<ItemMutationService>();
 builder.Services.AddScoped<EnvironmentRenameService>();
 
+// Post-migration feature addition — copy every variable from one environment to another
+// (same repo or cross-repo/cross-org), sibling to EnvironmentRenameService, not an extension of
+// it or of CopyService (see EnvironmentVariableCopyService's doc comment).
+builder.Services.AddScoped<EnvironmentVariableCopyService>();
+
 // Phase 6 — batch copy/delete-everywhere orchestration, moved server-side from CopyFacade/
 // DeleteEverywhereFacade's old client-side Promise.allSettled fan-out. Both are Scoped, not
 // Singleton — no state needs to survive between requests (unlike WorkflowRunCleanupService above),

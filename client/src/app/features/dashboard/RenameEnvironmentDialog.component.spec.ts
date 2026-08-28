@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { ENVIRONMENTS_GATEWAY } from '../../core/gateways/IEnvironmentsGateway';
+import { LEDGER_GATEWAY } from '../../core/gateways/ILedgerGateway';
 import { OAUTH_GATEWAY } from '../../core/gateways/IOAuthGateway';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
 import { SECRETS_GATEWAY } from '../../core/gateways/ISecretsGateway';
@@ -7,6 +8,7 @@ import type { LedgerItem } from '../../core/Types';
 import {
   ClearFakeSession,
   CreateFakeEnvironmentsGateway,
+  CreateFakeLedgerGateway,
   CreateFakeOAuthGateway,
   CreateFakeScopesGateway,
   CreateFakeSecretsGateway,
@@ -40,6 +42,7 @@ describe('RenameEnvironmentDialogComponent', () => {
       providers: [
         ProvideTestQueryClient(),
         { provide: ENVIRONMENTS_GATEWAY, useValue: fakeEnvironmentsGateway },
+        { provide: LEDGER_GATEWAY, useValue: CreateFakeLedgerGateway() },
         { provide: SECRETS_GATEWAY, useValue: CreateFakeSecretsGateway() },
         { provide: SCOPES_GATEWAY, useValue: CreateFakeScopesGateway() },
         { provide: OAUTH_GATEWAY, useValue: CreateFakeOAuthGateway() },

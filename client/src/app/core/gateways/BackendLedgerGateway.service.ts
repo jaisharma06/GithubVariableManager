@@ -3,7 +3,13 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type { ItemKind, ItemLevel, LedgerItem, ScopeRef } from '../Types';
-import type { CopyResult, CopyTarget, DeleteEverywhereResult, DeleteEverywhereTarget } from '../facades/CopySupport';
+import type {
+  CopyResult,
+  CopyTarget,
+  DeleteEverywhereResult,
+  DeleteEverywhereTarget,
+  EnvironmentVariableCopyResult,
+} from '../facades/CopySupport';
 import type { LedgerLockedSection, LedgerPartialError, LedgerResult } from '../facades/LedgerSupport';
 import { ItemId } from './GithubPathBuilder';
 import type { ILedgerGateway } from './ILedgerGateway';
@@ -84,6 +90,27 @@ interface DeleteEverywhereResponse {
   results: DeleteEverywhereTargetResultResponse[];
 }
 
+interface CopyEnvironmentVariablesRequest {
+  sourceOrg: string;
+  sourceRepo: string;
+  sourceEnv: string;
+  destOrg: string;
+  destRepo: string;
+  destEnv: string;
+}
+
+interface VariableCopyFailureResponse {
+  name: string;
+  error: string;
+}
+
+interface CopyEnvironmentVariablesResponse {
+  listSourceError: string | null;
+  copied: string[];
+  skipped: string[];
+  failures: VariableCopyFailureResponse[];
+}
+
 /**
  * Talks to the `api/` ASP.NET Core backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`)
  * rather than api.github.com directly. Injects `HttpClient` directly — mirrors
@@ -159,6 +186,31 @@ export class BackendLedgerGateway implements ILedgerGateway {
     );
 
     return { blob: response.body!, filename: this.FilenameFrom(response.headers.get('Content-Disposition'), org, repo) };
+  }
+
+  async CopyEnvironmentVariables(source: ScopeRef, dest: ScopeRef): Promise<EnvironmentVariableCopyResult> {
+    const request: CopyEnvironmentVariablesRequest = {
+      sourceOrg: source.org,
+      sourceRepo: source.repo!,
+      sourceEnv: source.env!,
+      destOrg: dest.org,
+      destRepo: dest.repo!,
+      destEnv: dest.env!,
+    };
+
+    const data = await firstValueFrom(
+      this.http.post<CopyEnvironmentVariablesResponse>(
+        `${environment.backendApiBaseUrl}/api/ledger/environments/copy-variables`,
+        request,
+      ),
+    );
+
+    return {
+      listSourceError: data.listSourceError ?? undefined,
+      copied: data.copied,
+      skipped: data.skipped,
+      failures: data.failures.map((f) => ({ name: f.name, message: f.error })),
+    };
   }
 
   /**

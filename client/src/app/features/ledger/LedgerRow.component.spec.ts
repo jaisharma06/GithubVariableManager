@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { VariableClipboardService } from '../../core/services/VariableClipboardService';
 import type { LedgerItem } from '../../core/Types';
 import { LedgerRowComponent } from './LedgerRow.component';
 
@@ -68,13 +69,30 @@ describe('LedgerRowComponent', () => {
     fixture.componentInstance.copyItem.subscribe(copySpy);
     fixture.componentInstance.deleteItem.subscribe(deleteSpy);
 
-    const buttons = fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
-    buttons[0].click();
-    buttons[1].click();
-    buttons[2].click();
+    const el = fixture.nativeElement as HTMLElement;
+    (el.querySelector('[title="Edit"]') as HTMLButtonElement).click();
+    (el.querySelector('[title^="Copy to other scopes"]') as HTMLButtonElement).click();
+    (el.querySelector('[title="Delete"]') as HTMLButtonElement).click();
 
     expect(editSpy).toHaveBeenCalled();
     expect(copySpy).toHaveBeenCalled();
     expect(deleteSpy).toHaveBeenCalled();
+  });
+
+  it('shows a "copy value" action for a variable row and copies it to VariableClipboardService', async () => {
+    fixture = await CreateFixture(VARIABLE);
+    const clipboardService = TestBed.inject(VariableClipboardService);
+
+    const copyValueButton = fixture.nativeElement.querySelector('[title="Copy value to clipboard"]') as HTMLButtonElement;
+    expect(copyValueButton).toBeTruthy();
+    copyValueButton.click();
+
+    expect(clipboardService.clipboard()).toEqual({ name: 'API_URL', value: 'https://example.com' });
+  });
+
+  it('never shows a "copy value" action for a secret row', async () => {
+    fixture = await CreateFixture(SECRET);
+
+    expect(fixture.nativeElement.querySelector('[title="Copy value to clipboard"]')).toBeNull();
   });
 });

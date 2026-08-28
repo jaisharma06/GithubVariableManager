@@ -15,6 +15,7 @@
         (navigate)="HandleSidebarNavigate($event)"
         (renameEnvironment)="envToRename.set($event)"
         (deleteEnvironment)="envToDelete.set($event)"
+        (copyEnvironment)="envToCopy.set($event)"
       />
     </div>
 
@@ -113,6 +114,7 @@
           (filtersChange)="filters.set($event)"
           (add)="HandleAdd()"
           (addToSection)="HandleAddToSection($event)"
+          (pasteToSection)="HandlePasteToSection($event)"
           (editItem)="HandleEditItem($event)"
           (copyItem)="copyTarget.set($event)"
           (deleteItem)="deleteTarget.set($event)"
@@ -168,9 +170,22 @@
       [initial]="ed.mode === 'edit' ? ed.item : null"
       [initialLevel]="ed.mode === 'create' ? ed.level : undefined"
       [initialEnv]="ed.mode === 'create' ? ed.env : undefined"
+      [initialName]="ed.mode === 'create' ? ed.name : undefined"
+      [initialValue]="ed.mode === 'create' ? ed.value : undefined"
       [showOrgLevel]="showOrgLevel()"
       (closed)="editorState.set(null)"
     />
+  }
+
+  @if (envToCopy(); as copySource) {
+    @if (scope().repo; as repo) {
+      <app-copy-environment-dialog
+        [org]="scope().org"
+        [repo]="repo"
+        [sourceEnv]="copySource"
+        (closed)="envToCopy.set(null)"
+      />
+    }
   }
 
   @if (copyTarget(); as target) {

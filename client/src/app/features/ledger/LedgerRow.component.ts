@@ -1,4 +1,5 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, inject, input, output } from '@angular/core';
+import { VariableClipboardService } from '../../core/services/VariableClipboardService';
 import type { LedgerItem } from '../../core/Types';
 
 /**
@@ -22,8 +23,17 @@ export class LedgerRowComponent {
   readonly copyItem = output<void>();
   readonly deleteItem = output<void>();
 
+  private readonly variableClipboardService = inject(VariableClipboardService);
+
   protected readonly rowGrid = ROW_GRID;
   protected readonly isSecret = computed(() => this.item().kind === 'secret');
   protected readonly masked = computed(() => this.isSecret() || this.hideValues());
   protected readonly railClass = computed(() => (this.isSecret() ? 'bg-secret' : 'bg-variable'));
+
+  /** Variable-only, mirroring CopyItemDialogComponent's rule that a secret's value can never be silently carried over. */
+  protected HandleCopyValue(): void {
+    const item = this.item();
+    if (item.kind !== 'variable') return;
+    this.variableClipboardService.CopyVariable(item.name, item.value ?? '');
+  }
 }

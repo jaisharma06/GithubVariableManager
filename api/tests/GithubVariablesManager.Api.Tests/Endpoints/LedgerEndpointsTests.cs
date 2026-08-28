@@ -635,4 +635,59 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [Fact]
+    public async Task PostCopyEnvironmentVariables_ValidRequest_ReturnsCopiedSkippedAndFailures()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """
+                {"total_count":2,"variables":[
+                  {"name":"ALREADY_THERE","value":"v","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},
+                  {"name":"NEW_VAR","value":"v","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}
+                ]}
+                """)
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"ALREADY_THERE","value":"existing","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.Created, "{}");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/environments/copy-variables",
+            new CopyEnvironmentVariablesRequest("octo-org", "widgets", "staging", "octo-org", "widgets", "production"));
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<CopyEnvironmentVariablesResponse>();
+        Assert.NotNull(body);
+        Assert.Null(body!.ListSourceError);
+        Assert.Equal(["NEW_VAR"], body.Copied);
+        Assert.Equal(["ALREADY_THERE"], body.Skipped);
+        Assert.Empty(body.Failures);
+    }
+
+    [Fact]
+    public async Task PostCopyEnvironmentVariables_ListSourceFails_Returns200WithListSourceError()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.Forbidden, """{"message":"Forbidden"}""");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/environments/copy-variables",
+            new CopyEnvironmentVariablesRequest("octo-org", "widgets", "staging", "octo-org", "widgets", "production"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<CopyEnvironmentVariablesResponse>();
+        Assert.NotNull(body);
+        Assert.NotNull(body!.ListSourceError);
+        Assert.Contains("Forbidden", body.ListSourceError);
+        Assert.Empty(body.Copied);
+    }
+
+    [Fact]
+    public async Task PostCopyEnvironmentVariables_MissingBearerToken_Returns401()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/ledger/environments/copy-variables",
+            new CopyEnvironmentVariablesRequest("octo-org", "widgets", "staging", "octo-org", "widgets", "production"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 }

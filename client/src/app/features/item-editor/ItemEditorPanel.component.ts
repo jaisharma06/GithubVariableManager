@@ -48,6 +48,8 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
   /** Pre-fill name/kind when opened to fill in one specific cell (used by CompareView — Phase 8). */
   readonly initialName = input<string | undefined>(undefined);
   readonly initialKind = input<ItemKind | undefined>(undefined);
+  /** Pre-fill the value when opened via a variable paste (VariableClipboardService) — never set for a secret, since a secret's value can never be silently carried over. */
+  readonly initialValue = input<string | undefined>(undefined);
   /** Locks level/environment/name/kind — used when the target scope+name is already decided for us. */
   readonly lockTarget = input(false);
   readonly showOrgLevel = input.required<boolean>();
@@ -81,6 +83,8 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
   protected readonly renameDeleteWarning = signal<string | null>(null);
 
   protected readonly isEdit = computed(() => this.initial() !== null);
+  /** True only for a fresh create opened via SectionHeaderComponent's "Paste" action — drives the "from clipboard" provenance note, mirroring how isEdit()/lockTarget() already distinguish this form's other open-modes. */
+  protected readonly pastedFromClipboard = computed(() => !this.isEdit() && !this.lockTarget() && this.initialValue() !== undefined);
   protected readonly isRenaming = computed(() => this.isEdit() && this.name() !== this.initial()!.name);
   protected readonly nameValid = computed(() => this.name().length === 0 || NAME_PATTERN.test(this.name()));
   protected readonly needsVisibilityPicker = computed(() => this.kind() === 'secret' && this.level() === 'organization');
@@ -133,7 +137,7 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
     this.envName.set(initial?.scope.env ?? this.initialEnv() ?? this.environments()[0]?.name ?? '');
     this.kind.set(initial?.kind ?? this.initialKind() ?? 'variable');
     this.name.set(initial?.name ?? this.initialName() ?? '');
-    this.value.set(initial?.kind === 'variable' ? (initial.value ?? '') : '');
+    this.value.set(initial?.kind === 'variable' ? (initial.value ?? '') : (this.initialValue() ?? ''));
     this.visibility.set(initial?.visibility ?? 'all');
   }
 

@@ -27,13 +27,45 @@
   `LedgerFacade.ts` entry for why) and a private `TriggerDownload(blob, filename)` — an object URL +
   a temporary, immediately-clicked-and-discarded `<a download>` anchor, the first place in this
   codebase that triggers a browser file download, so there was no prior in-repo pattern to reuse.
+  Two later, non-phase-numbered additions: `editorState`'s `'create'` variant gained optional
+  `name`/`value` fields, populated only by `HandlePasteToSection(event)` (wired to
+  `LedgerComponent`'s `(pasteToSection)` output) — it reads `VariableClipboardService`'s buffer and
+  opens `ItemEditorPanelComponent`'s create flow pre-filled from it (a no-op if the buffer is empty,
+  though the "Paste" affordance that triggers this is hidden in that case anyway); the plain "+ Add"
+  flow (`HandleAdd`/`HandleAddToSection`) never sets these fields. And a new `envToCopy` signal
+  (`string | null`) renders `CopyEnvironmentDialogComponent` when set, wired to
+  `ScopeSidebarComponent`'s `(copyEnvironment)` output — the same open/close signal pattern
+  `envToRename`/`RenameEnvironmentDialogComponent` already established.
 - **`ScopeSidebar.component.ts`/`.html`** — org/repo header, environment list with per-environment
   rename/delete affordances, "+ New environment" inline form. Injects `EnvironmentsFacade` directly
   (not solely via `output()`) for the create-environment flow — documented in a comment on the
   class: an `output()` can't hand the child form back a `Promise` to `await`/`catch`, which the
   inline form needs to show its own validation error without the parent round-tripping it back
   down as an `@Input()`. Exports `ScopeNavigateEvent` (`{ level, env? }`) for the parent to react to
-  sidebar navigation.
+  sidebar navigation. A later, non-phase-numbered addition: a `copyEnvironment` output (`string`, the
+  environment's name), next to the existing rename/delete environment icon actions, wired by
+  `DashboardShellComponent` to its `envToCopy` signal.
+- **`CopyEnvironmentDialog.component.ts`/`.html`** — a later, non-phase-numbered addition. Copies
+  every variable from one environment (`sourceEnv` input, fixed for the dialog's lifetime) into a
+  destination environment the user picks — an org/repo search (`ScopesFacade.MyOrgsQuery`/
+  `MyReposQuery`/`OrgReposQuery`, the same search pattern `CrossRepoTargetPickerComponent` uses)
+  followed by an environment `<select>` (`EnvironmentsFacade.EnvironmentsQuery`). Deliberately its
+  own lightweight picker rather than a reuse of `features/ledger/CrossRepoTargetPicker.component.ts`
+  — that component is hard-coupled to a single `LedgerItem` plus secret-visibility fields this
+  variables-only, one-destination feature doesn't need, and it supports organization-/repository-
+  level targets this feature never offers (copying variables between *environments* is the whole
+  point, so it always requires a repo before showing anything further to pick). All business logic
+  (listing, skip-if-exists, the substring value transform, per-variable failure isolation) lives
+  server-side in `api/Services/EnvironmentVariableCopyService.cs` (see `docs/Architecture.md` for why
+  it's a sibling to `CopyService`, not an extension) — this component only collects the destination
+  and renders whatever outcome the backend reports (`EnvironmentsFacade.copyEnvironmentVariables`),
+  mirroring `RenameEnvironmentDialogComponent`'s post-Phase-3c shape of one backend call with no
+  client-side orchestration. The outcome view shows up to four buckets — copied (success treatment,
+  `border-ok/30`/`text-ok`), a soft `listSourceError` (failure-banner language,
+  `border-danger/30 bg-danger-dim`), skipped (a neutral `bg-panel-raised` card, substituting where
+  this app's palette has no `ok-dim` token), and failures (the same failure-banner language as
+  `listSourceError`) — the first dialog in this app to surface more than two outcome buckets at
+  once.
 - **`RunnersPanel.component.ts`/`.html`** — self-hosted runners for the active scope, polled every
   30s (`RunnersFacade.RunnersQuery`'s `refetchInterval`). Computes `runners`/`onlineCount`/
   `noAccess`/`errorMessage`; `RunnerState`/`RunnerDotClass`/`RunnerLabelClass`/`RunnerTitle` render

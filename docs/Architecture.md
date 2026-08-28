@@ -69,10 +69,11 @@ features/
                    (device-code polling UI), AuthGuard (route guard)
   scope-picker/    Choose an org or repo to manage
   dashboard/       Screen shell: fixed non-scrolling sidebar (scope tree, runners panel, account
-                   footer), header with List/Compare toggle, hosts the delete-environment and
-                   rename-environment dialogs
+                   footer), header with List/Compare toggle, hosts the delete-environment,
+                   rename-environment, and copy-environment-variables dialogs
   ledger/          The main variables/secrets list: filters, grouped sections, locked-section
-                   handling, hide-values toggle, the copy-to-other-scopes dialog
+                   handling, hide-values toggle, the copy-to-other-scopes dialog, the
+                   copy-variable-to-clipboard/paste-from-clipboard affordances
   item-editor/     Create/edit slide-over, including the "also create in other environments"
                    replicate checkboxes and the org-secret visibility picker
   compare/         Matrix view: rows = names, columns = selectable scopes, inline edit/copy per
@@ -177,6 +178,15 @@ the underlying rule.
   (`Services/CopyService.cs`/`Services/DeleteEverywhereService.cs`), so a batch
   (copy-to-many-scopes, delete-from-every-scope) never duplicates the underlying
   create/update/delete logic and reports per-target success/failure independently.
+  `Services/EnvironmentVariableCopyService.cs` (a post-migration addition — see "Post-migration
+  feature additions" below) is a **sibling** to `CopyService`, not an extension of it, even though
+  both live under the same batch-operations umbrella: `CopyService`'s shape is one item -> N
+  targets with always-overwrite semantics (`POST /api/ledger/copy`), while
+  `EnvironmentVariableCopyService`'s shape is N variables -> one target with skip-if-exists
+  semantics and a per-item value transform (`POST /api/ledger/environments/copy-variables`) — a
+  different enough problem that folding it into `CopyService` would have meant branching that
+  service's single-target/always-overwrite logic around a second, incompatible shape rather than
+  reusing it cleanly.
 
 `core/strategies/` is intentionally empty — see its own `README.md` for the reasoning (kind-based
 `variable`/`secret` branching stayed shallow enough that a formal Strategy class hierarchy would
@@ -421,6 +431,65 @@ rather than silently left out of this file's narrative:
   organization-level secrets in two different destination orgs at once. See
   `features/ledger/README.md` for the full design, including the deliberate choice to duplicate the
   org-secret-visibility picker rather than extract it from `ItemEditorPanelComponent`.
+
+- **In-app variable clipboard: copy a variable, paste it anywhere** — a `client/`-only feature,
+  variables only (never secrets, since a secret has no readable value to put in a buffer in the
+  first place — see "Hard constraint that shapes the UI" above). `core/services/
+  VariableClipboardService.ts` is a new `providedIn: 'root'` singleton, the same tier as
+  `LastScopeService`/`RateLimitService`: a signal-backed `{ name, value } | null` buffer with one
+  method, `CopyVariable(name, value)`, which sets the buffer and best-effort mirrors the raw value
+  (never `NAME=value`) to the real OS clipboard via `navigator.clipboard.writeText` (a rejected
+  write — no permission, insecure context — is swallowed; the in-app buffer is what actually powers
+  paste, and is set either way). The buffer persists until the next `CopyVariable` call overwrites
+  it — no auto-clear on paste or sign-out, a deliberate product decision, since copying one value
+  into several scopes in a row is the common case. `LedgerRowComponent` gained a "copy value" icon
+  action (variable rows only), distinct from the pre-existing "copy to other scopes" icon that opens
+  `CopyItemDialogComponent` — the two are different mechanics entirely (buffer-then-paste-later vs.
+  push-now-to-N-targets-at-once), not two names for the same feature.
+  `SectionHeaderComponent` gained a "Paste" affordance, shown only when the buffer is non-empty
+  (`hasClipboard`), emitting `pasteVariable`; `LedgerComponent` forwards this per-section as
+  `pasteToSection: { level, env? }`. `DashboardShellComponent.HandlePasteToSection` opens
+  `ItemEditorPanelComponent` in its existing create flow, pre-filled from the buffer — `EditorState`'s
+  `'create'` variant gained optional `name`/`value` fields, populated only by a paste (the plain
+  "+ Add" flow never sets them). `ItemEditorPanelComponent` gained an `initialValue` input that seeds
+  the create form's value field, and shows a "FROM CLIPBOARD" badge (reusing `KindBadgeComponent`'s
+  visual recipe — same `inline-flex`/`rounded`/`px-1.5 py-0.5`/`font-mono text-[10px]` classes,
+  not the component itself) when opened via paste, so the user can tell a pre-filled form apart from
+  a blank one. **No backend involvement at all** — pasting still goes through the existing
+  create-variable endpoint (`POST /api/ledger/variables`) for the user to review/edit/confirm before
+  anything is actually created; the clipboard buffer only pre-fills a form, it never creates
+  anything by itself.
+
+- **Copy all variables from one environment to another** — unlike the clipboard feature above, this
+  *is* new backend orchestration, not a `client/`-only convenience: `api/Services/
+  EnvironmentVariableCopyService.cs` (see "Design patterns in use" above for why it's a sibling to
+  `CopyService`, not an extension) lists the source environment's variables, skips any name that
+  already exists at the destination (reported as `skipped`, not an error — the batch continues), and
+  creates the rest with a case-sensitive, ordinal substring replace of the source environment's name
+  with the destination's inside each value (no word-boundary/token-aware smarts, by explicit product
+  decision). Source and destination can be cross-repo/cross-org — nothing in `GitHub/
+  ActionsRestClient.cs` is repo-bound — but both environments must already exist; there's no inline
+  environment creation as part of this flow. A failed source listing is a soft, reported failure
+  (`CopyEnvironmentVariablesResponse.ListSourceError`, still `200 OK`), the same outcome-reporting
+  precedent `EnvironmentRenameService` established for its own `ListVariablesError`. New endpoint:
+  `POST /api/ledger/environments/copy-variables`, on the existing Ledger route group. On `client/`:
+  a new `features/dashboard/CopyEnvironmentDialog.component.ts` (destination org/repo/environment
+  picker, deliberately its own lightweight picker rather than a reuse of
+  `CrossRepoTargetPickerComponent`, which is hard-coupled to a single `LedgerItem` and
+  secret-visibility fields this variables-only, one-destination feature doesn't need), wired via a
+  new `copyEnvironment` output on `ScopeSidebarComponent` (next to the existing rename/delete
+  environment actions) and an `envToCopy` signal on `DashboardShellComponent` mirroring
+  `envToRename`/`RenameEnvironmentDialogComponent`'s existing open/close pattern. New Gateway method
+  `ILedgerGateway.CopyEnvironmentVariables(source, dest)`, new Facade mutation
+  `EnvironmentsFacade.copyEnvironmentVariables` — deliberately no optimistic `onMutate`, the same
+  reasoning `renameEnvironment` already established (hand-faking N variables appearing at an
+  arbitrary, possibly cross-repo/cross-org destination is high-risk for low payoff); `onSuccess`
+  invalidates `['ledger']` broadly. The outcome UI shows **three** buckets — copied/skipped/failed
+  (plus a possible fourth, the soft `listSourceError`) — the first dialog in this app to show more
+  than two outcome buckets at once, reusing the existing `border-danger/30 bg-danger-dim`
+  failure-banner language for the failures/list-error buckets and a `border-ok/30`/`text-ok`
+  success treatment for the copied bucket, with a neutral `bg-panel-raised` card for the skipped
+  bucket (substituting where no `ok-dim` token exists in this app's palette).
 
 ## History
 

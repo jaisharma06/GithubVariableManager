@@ -2,7 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { injectMutation, injectQuery, injectQueryClient } from '@tanstack/angular-query-experimental';
 import { AuthService } from '../services/AuthService';
 import { ENVIRONMENTS_GATEWAY, type IEnvironmentsGateway, type RenameEnvironmentParams } from '../gateways/IEnvironmentsGateway';
-import type { GithubEnvironment } from '../Types';
+import { LEDGER_GATEWAY, type ILedgerGateway } from '../gateways/ILedgerGateway';
+import type { GithubEnvironment, ScopeRef } from '../Types';
 
 interface EnvironmentMutationParams {
   org: string;
@@ -14,6 +15,7 @@ interface EnvironmentMutationParams {
 @Injectable({ providedIn: 'root' })
 export class EnvironmentsFacade {
   private readonly environmentsGateway = inject<IEnvironmentsGateway>(ENVIRONMENTS_GATEWAY);
+  private readonly ledgerGateway = inject<ILedgerGateway>(LEDGER_GATEWAY);
   private readonly authService = inject(AuthService);
   private readonly queryClient = injectQueryClient();
 
@@ -77,6 +79,23 @@ export class EnvironmentsFacade {
     mutationFn: (p: RenameEnvironmentParams) => this.environmentsGateway.RenameEnvironment(p),
     onSuccess: (_result, p) => {
       this.queryClient.invalidateQueries({ queryKey: ['environments', this.authService.token(), p.org, p.repo] });
+      this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  }));
+
+  /**
+   * One backend call (`ILedgerGateway.CopyEnvironmentVariables` -> `api/`'s
+   * `EnvironmentVariableCopyService`) that lists the source environment's variables, skips any
+   * name already present at the destination, and creates the rest with the source environment's
+   * name substring-replaced by the destination's. Deliberately no optimistic `onMutate` patch —
+   * same reasoning as `renameEnvironment` above: N variables appearing at an arbitrary (possibly
+   * cross-repo/cross-org) destination is high-risk to hand-fake. `onSuccess` invalidates `['ledger']`
+   * broadly so the destination's new variables show up via normal refetch, accepting the same
+   * brief-flicker tradeoff.
+   */
+  readonly copyEnvironmentVariables = injectMutation(() => ({
+    mutationFn: (p: { source: ScopeRef; dest: ScopeRef }) => this.ledgerGateway.CopyEnvironmentVariables(p.source, p.dest),
+    onSuccess: () => {
       this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },
   }));

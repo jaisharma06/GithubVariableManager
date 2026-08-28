@@ -77,3 +77,22 @@ public sealed record CopyResponse(IReadOnlyList<CopyTargetResult> Results);
 public sealed record DeleteEverywhereRequest(string Kind, string Name, IReadOnlyList<LedgerScopeTargetRequest> Targets);
 public sealed record DeleteEverywhereTargetResult(LedgerScopeTargetResponse Target, bool Ok, string? Message);
 public sealed record DeleteEverywhereResponse(IReadOnlyList<DeleteEverywhereTargetResult> Results);
+
+/// <summary>
+/// Copy every variable from one environment into another (same repo or cross-repo/cross-org),
+/// with a case-sensitive substring replace of the source environment's name -> the destination
+/// environment's name inside each value, skipping any name that already exists at the destination.
+/// Deliberately its own request/response shape rather than reusing <see cref="CopyRequest"/> — that
+/// endpoint is one-item-to-N-targets with always-overwrite semantics, a different shape from this
+/// one-environment-to-one-environment, skip-if-exists, N-variable operation. See
+/// <see cref="Services.EnvironmentVariableCopyService"/>'s doc comment for the full design.
+/// </summary>
+public sealed record CopyEnvironmentVariablesRequest(
+    string SourceOrg, string SourceRepo, string SourceEnv,
+    string DestOrg, string DestRepo, string DestEnv);
+
+public sealed record CopyEnvironmentVariablesResponse(
+    string? ListSourceError,
+    IReadOnlyList<string> Copied,
+    IReadOnlyList<string> Skipped,
+    IReadOnlyList<VariableCopyFailureResponse> Failures);

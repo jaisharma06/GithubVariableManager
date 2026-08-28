@@ -34,6 +34,13 @@ namespace GithubVariablesManager.Api.Endpoints;
 /// — <see cref="Services.ItemMutationService.UpsertVariableAsync"/> itself is kept, since
 /// <see cref="Services.EnvironmentRenameService"/> and <see cref="Services.CopyService"/> both still
 /// call it in-process; only the externally-exposed HTTP route lost its last caller.
+///
+/// <c>POST /api/ledger/environments/copy-variables</c> is a later, non-phase-numbered addition —
+/// copies every variable from one environment to another (same repo or cross-repo/cross-org), with
+/// a substring value transform and skip-if-exists. It's a sibling to
+/// <see cref="Services.EnvironmentRenameService"/>, not an extension of it or of
+/// <c>POST /api/ledger/copy</c> — see <see cref="Services.EnvironmentVariableCopyService"/>'s doc
+/// comment for why.
 /// </summary>
 public static class LedgerEndpoints
 {
@@ -308,6 +315,24 @@ public static class LedgerEndpoints
             .WithSummary("Rename an environment (create-new, copy every variable's value across, conditionally delete-old, since GitHub has no environment rename API); reports a partial outcome rather than a 5xx.")
             .Produces<RenameEnvironmentResponse>(200)
             .Produces<ErrorResponse>(400)
+            .Produces<ErrorResponse>(401);
+
+        group.MapPost("/environments/copy-variables", async (CopyEnvironmentVariablesRequest request, IBearerTokenAccessor tokenAccessor, EnvironmentVariableCopyService environmentVariableCopyService) =>
+        {
+            if (tokenAccessor.GetToken() is null)
+            {
+                return Results.Json(new ErrorResponse("Missing bearer token."), statusCode: 401);
+            }
+
+            var result = await environmentVariableCopyService.CopyEnvironmentVariablesAsync(
+                request.SourceOrg, request.SourceRepo, request.SourceEnv,
+                request.DestOrg, request.DestRepo, request.DestEnv);
+            return Results.Ok(result);
+        })
+            .WithName("CopyEnvironmentVariables")
+            .WithTags("Ledger")
+            .WithSummary("Copy every variable from one environment to another (same repo or cross-repo/cross-org), substituting the source environment's name for the destination's inside each value and skipping any name that already exists at the destination.")
+            .Produces<CopyEnvironmentVariablesResponse>(200)
             .Produces<ErrorResponse>(401);
 
         group.MapPost("/copy", async (CopyRequest request, IBearerTokenAccessor tokenAccessor, CopyService copyService) =>

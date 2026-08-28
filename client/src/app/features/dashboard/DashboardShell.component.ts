@@ -3,6 +3,7 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService } from '../../core/services/AuthService';
 import { LastScopeService } from '../../core/services/LastScopeService';
+import { VariableClipboardService } from '../../core/services/VariableClipboardService';
 import { EnvironmentsFacade } from '../../core/facades/EnvironmentsFacade';
 import { ItemMutationsFacade } from '../../core/facades/ItemMutationsFacade';
 import { LedgerFacade } from '../../core/facades/LedgerFacade';
@@ -18,13 +19,21 @@ import { ItemEditorPanelComponent } from '../item-editor/ItemEditorPanel.compone
 import { CopyItemDialogComponent } from '../ledger/CopyItemDialog.component';
 import { LedgerComponent } from '../ledger/Ledger.component';
 import { DEFAULT_FILTERS, type LedgerFilters } from '../ledger/LedgerFilters';
+import { CopyEnvironmentDialogComponent } from './CopyEnvironmentDialog.component';
 import { RenameEnvironmentDialogComponent, type EnvironmentRenamedEvent } from './RenameEnvironmentDialog.component';
 import { RunnersPanelComponent } from './RunnersPanel.component';
 import { ScopeSidebarComponent, type ScopeNavigateEvent } from './ScopeSidebar.component';
 import { WorkflowsViewComponent } from '../workflows/WorkflowsView.component';
 
-/** What's being added/edited — mirrors web/src/features/dashboard/Dashboard.tsx's EditorState. */
-type EditorState = { mode: 'create'; level?: ItemLevel; env?: string } | { mode: 'edit'; item: LedgerItem } | null;
+/**
+ * What's being added/edited — mirrors web/src/features/dashboard/Dashboard.tsx's EditorState.
+ * `name`/`value` on the 'create' variant are only ever populated by a paste (see
+ * HandlePasteToSection below) — the plain "+ Add" flow never sets them.
+ */
+type EditorState =
+  | { mode: 'create'; level?: ItemLevel; env?: string; name?: string; value?: string }
+  | { mode: 'edit'; item: LedgerItem }
+  | null;
 
 /**
  * Port of web/src/features/dashboard/Dashboard.tsx (OrgDashboard/RepoDashboard/DashboardShell
@@ -40,6 +49,7 @@ type EditorState = { mode: 'create'; level?: ItemLevel; env?: string } | { mode:
     ScopeSidebarComponent,
     RunnersPanelComponent,
     RenameEnvironmentDialogComponent,
+    CopyEnvironmentDialogComponent,
     AvatarComponent,
     ButtonComponent,
     RateLimitIndicatorComponent,
@@ -57,6 +67,7 @@ export class DashboardShellComponent {
   private readonly router = inject(Router);
   protected readonly authService = inject(AuthService);
   private readonly lastScopeService = inject(LastScopeService);
+  private readonly variableClipboardService = inject(VariableClipboardService);
   private readonly environmentsFacade = inject(EnvironmentsFacade);
   private readonly scopesFacade = inject(ScopesFacade);
   private readonly ledgerFacade = inject(LedgerFacade);
@@ -95,6 +106,7 @@ export class DashboardShellComponent {
   protected readonly envToDelete = signal<string | null>(null);
   protected readonly envDeleteError = signal<string | null>(null);
   protected readonly envToRename = signal<string | null>(null);
+  protected readonly envToCopy = signal<string | null>(null);
   protected readonly viewMode = signal<'list' | 'compare' | 'workflows'>('list');
   protected readonly editorState = signal<EditorState>(null);
   protected readonly copyTarget = signal<LedgerItem | null>(null);
@@ -162,6 +174,13 @@ export class DashboardShellComponent {
 
   protected HandleAddToSection(event: { level: ItemLevel; env?: string }): void {
     this.editorState.set({ mode: 'create', level: event.level, env: event.env });
+  }
+
+  /** Opens the create form pre-filled from the clipboard buffer — a no-op if it's empty (the paste affordance is hidden in that case, but this stays defensive). */
+  protected HandlePasteToSection(event: { level: ItemLevel; env?: string }): void {
+    const clip = this.variableClipboardService.clipboard();
+    if (!clip) return;
+    this.editorState.set({ mode: 'create', level: event.level, env: event.env, name: clip.name, value: clip.value });
   }
 
   protected HandleEditItem(item: LedgerItem): void {

@@ -70,7 +70,13 @@ export function CreateFakeVariablesGateway(): jasmine.SpyObj<IVariablesGateway> 
 }
 
 export function CreateFakeLedgerGateway(): jasmine.SpyObj<ILedgerGateway> {
-  return jasmine.createSpyObj<ILedgerGateway>('ILedgerGateway', ['GetLedger', 'Copy', 'DeleteEverywhere', 'ExportLedger']);
+  return jasmine.createSpyObj<ILedgerGateway>('ILedgerGateway', [
+    'GetLedger',
+    'Copy',
+    'DeleteEverywhere',
+    'ExportLedger',
+    'CopyEnvironmentVariables',
+  ]);
 }
 
 export function CreateFakeSecretsGateway(): jasmine.SpyObj<ISecretsGateway> {

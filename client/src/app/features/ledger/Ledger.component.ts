@@ -93,6 +93,7 @@ export class LedgerComponent {
   readonly filtersChange = output<LedgerFilters>();
   readonly add = output<void>();
   readonly addToSection = output<{ level: ItemLevel; env?: string }>();
+  readonly pasteToSection = output<{ level: ItemLevel; env?: string }>();
   readonly editItem = output<LedgerItem>();
   readonly copyItem = output<LedgerItem>();
   readonly deleteItem = output<LedgerItem>();

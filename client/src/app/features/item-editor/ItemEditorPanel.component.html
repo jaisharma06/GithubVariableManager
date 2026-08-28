@@ -6,7 +6,18 @@
     class="flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-line bg-panel shadow-2xl shadow-black/10"
   >
     <div class="border-b border-line px-5 py-4">
-      <p class="font-mono text-xs uppercase tracking-widest text-brand">{{ isEdit() ? 'Edit' : 'Add' }}</p>
+      <div class="flex items-center gap-1.5">
+        <p class="font-mono text-xs uppercase tracking-widest text-brand">{{ isEdit() ? 'Edit' : 'Add' }}</p>
+        @if (pastedFromClipboard()) {
+          <!-- Same badge recipe as KindBadgeComponent (inline-flex/rounded/px-1.5 py-0.5/font-mono text-[10px]), reusing the variable-accent tone since this only ever fires for a variable paste. -->
+          <span
+            class="inline-flex items-center rounded bg-variable-dim px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-variable"
+            title="Name and value were pre-filled from what you copied — edit either before saving."
+          >
+            FROM CLIPBOARD
+          </span>
+        }
+      </div>
       <h2 class="mt-1 font-display text-lg font-semibold text-text">
         {{ isEdit() ? initial()!.name : lockTarget() ? initialName() : 'New variable or secret' }}
       </h2>

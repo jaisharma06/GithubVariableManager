@@ -1,0 +1,181 @@
+<div
+  class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-[2px]"
+  role="presentation"
+  (click)="closed.emit()"
+>
+  <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events -- this stopPropagation() only keeps a click inside the dialog from bubbling to the backdrop's dismiss handler above; Escape (handled document-wide by this component) is the real keyboard equivalent. -->
+  <form
+    (submit)="HandleSubmit($event)"
+    (click)="$event.stopPropagation()"
+    class="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-2xl shadow-black/10"
+  >
+    <div class="border-b border-line px-5 py-4">
+      <p class="font-mono text-xs uppercase tracking-widest text-brand">Copy variables</p>
+      <h2 class="mt-1 break-all font-display text-lg font-semibold text-text">{{ org() }}/{{ repo() }} &middot; {{ sourceEnv() }}</h2>
+    </div>
+
+    <div class="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      @if (!result()) {
+        <p class="text-xs text-text-dim">
+          Copies every variable from <span class="font-mono text-text">{{ sourceEnv() }}</span> into the environment below. Any
+          occurrence of <span class="font-mono text-text">{{ sourceEnv() }}</span> inside a value is replaced with the destination
+          environment's name. A variable whose name already exists at the destination is skipped, never overwritten.
+        </p>
+
+        <div class="space-y-3 rounded-md border border-line bg-ink/40 p-3">
+          @if (!destinationRepo()) {
+            @if (!destPickedOrg()) {
+              <input
+                #queryInput
+                [value]="query()"
+                (input)="HandleQueryInput($event)"
+                placeholder="Search organizations and repositories&hellip;"
+                spellcheck="false"
+                class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
+              />
+
+              <div class="max-h-40 space-y-3 overflow-y-auto">
+                @if (filteredOrgs().length > 0) {
+                  <div>
+                    <p class="mb-1 text-[11px] uppercase tracking-wider text-text-dim">Organizations</p>
+                    <div class="overflow-hidden rounded-md border border-line">
+                      @for (o of filteredOrgs(); track o.login) {
+                        <button
+                          type="button"
+                          (click)="PickOrg(o.login)"
+                          class="flex w-full items-center justify-between border-b border-line px-3 py-1.5 text-left text-sm last:border-b-0 hover:bg-panel-raised"
+                        >
+                          <span class="truncate font-mono text-text">{{ o.login }}</span>
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+                @if (filteredRepos().length > 0) {
+                  <div>
+                    <p class="mb-1 text-[11px] uppercase tracking-wider text-text-dim">Repositories</p>
+                    <div class="overflow-hidden rounded-md border border-line">
+                      @for (r of filteredRepos(); track r.fullName) {
+                        <button
+                          type="button"
+                          (click)="PickRepo(r.owner, r.name)"
+                          class="flex w-full items-center justify-between border-b border-line px-3 py-1.5 text-left text-sm last:border-b-0 hover:bg-panel-raised"
+                        >
+                          <span class="truncate font-mono text-text">{{ r.fullName }}</span>
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+                @if (orgsQuery.isLoading() || reposQuery.isLoading()) {
+                  <p class="text-xs text-text-dim">Loading organizations and repositories&hellip;</p>
+                } @else if (filteredOrgs().length === 0 && filteredRepos().length === 0) {
+                  <p class="text-xs text-text-dim">No organizations or repositories matched.</p>
+                }
+              </div>
+            } @else {
+              <div class="flex items-center justify-between gap-2">
+                <p class="truncate font-mono text-sm text-text">{{ destPickedOrg() }}</p>
+                <button type="button" (click)="ClearDestination()" class="shrink-0 text-xs text-brand hover:underline">Change</button>
+              </div>
+              <p class="text-xs text-text-dim">Pick a repository:</p>
+              <div class="max-h-40 overflow-y-auto rounded-md border border-line">
+                @if (orgReposQuery.isLoading()) {
+                  <p class="p-3 text-xs text-text-dim">Loading repositories&hellip;</p>
+                } @else {
+                  @for (r of orgReposQuery.data() ?? []; track r.id) {
+                    <button
+                      type="button"
+                      (click)="PickRepo(destPickedOrg()!, r.name)"
+                      class="flex w-full items-center justify-between border-b border-line px-3 py-1.5 text-left text-sm last:border-b-0 hover:bg-panel-raised"
+                    >
+                      <span class="truncate font-mono text-text">{{ r.name }}</span>
+                    </button>
+                  }
+                }
+              </div>
+            }
+          } @else {
+            <div class="flex items-center justify-between gap-2">
+              <p class="truncate font-mono text-sm text-text">{{ destinationOrg() }}/{{ destinationRepo() }}</p>
+              <button type="button" (click)="ClearDestination()" class="shrink-0 text-xs text-brand hover:underline">Change</button>
+            </div>
+
+            <label class="block">
+              <span class="mb-1 block text-xs font-medium text-text-dim">Environment</span>
+              <select
+                class="w-full rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text focus:border-brand focus:outline-none"
+                [value]="destEnvName()"
+                (change)="HandleEnvNameChange($event)"
+              >
+                <option value="" disabled>Choose&hellip;</option>
+                @for (env of destEnvironmentsQuery.data() ?? []; track env.id) {
+                  <option [value]="env.name">{{ env.name }}</option>
+                }
+              </select>
+              @if (destEnvironmentsQuery.isLoading()) {
+                <p class="mt-1 text-xs text-text-dim">Loading environments&hellip;</p>
+              } @else if ((destEnvironmentsQuery.data() ?? []).length === 0) {
+                <p class="mt-1 text-xs text-text-dim">This repository has no environments yet.</p>
+              }
+            </label>
+
+            @if (isSameScope()) {
+              <p class="text-xs text-danger">Choose a different environment — this is the same as the source.</p>
+            }
+          }
+        </div>
+
+        @if (error()) {
+          <p class="text-sm text-danger">{{ error() }}</p>
+        }
+      } @else {
+        <div class="space-y-3">
+          <div class="rounded-md border border-ok/30 bg-panel-raised p-2.5">
+            <p class="text-xs font-medium text-ok">
+              Copied {{ result()!.copied.length }} variable{{ result()!.copied.length === 1 ? '' : 's' }}
+            </p>
+            @if (result()!.copied.length > 0) {
+              <p class="mt-1 break-all text-xs text-text-dim">{{ result()!.copied.join(', ') }}</p>
+            }
+          </div>
+
+          @if (result()!.listSourceError) {
+            <div class="rounded-md border border-danger/30 bg-danger-dim p-2.5">
+              <p class="text-xs font-medium text-danger">Couldn&rsquo;t list the source environment&rsquo;s variables</p>
+              <p class="mt-1 text-xs text-text-dim">{{ result()!.listSourceError }}</p>
+            </div>
+          }
+
+          @if (result()!.skipped.length > 0) {
+            <div class="rounded-md border border-line bg-ink/40 p-2.5">
+              <p class="text-xs font-medium text-text-dim">
+                Skipped {{ result()!.skipped.length }} — already exist{{ result()!.skipped.length === 1 ? 's' : '' }} at the
+                destination
+              </p>
+              <p class="mt-1 break-all text-xs text-text-dim">{{ result()!.skipped.join(', ') }}</p>
+            </div>
+          }
+
+          @if (result()!.failures.length > 0) {
+            <div class="space-y-1 rounded-md border border-danger/30 bg-danger-dim p-2.5">
+              <p class="text-xs font-medium text-danger">{{ result()!.failures.length }} failed</p>
+              @for (f of result()!.failures; track f.name) {
+                <p class="text-xs text-text-dim"><span class="text-danger">{{ f.name }}</span>: {{ f.message }}</p>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+
+    <div class="flex justify-end gap-2 border-t border-line px-5 py-4">
+      <app-button type="button" variant="ghost" (click)="closed.emit()">{{ result() ? 'Close' : 'Cancel' }}</app-button>
+      @if (!result()) {
+        <app-button type="submit" variant="primary" [disabled]="submitDisabled()">
+          {{ copyPending() ? 'Copying…' : 'Copy' }}
+        </app-button>
+      }
+    </div>
+  </form>
+</div>

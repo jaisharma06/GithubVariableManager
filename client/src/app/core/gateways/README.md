@@ -33,7 +33,15 @@ see `docs/Architecture.md`'s "Gateway/Adapter" pattern entry for the full ration
   `FilenameFrom` falls back to recomputing the same `{org}[-repo]-variables-secrets-{date}.xlsx`
   format `api/`'s `LedgerExportService.BuildFilename` builds server-side, so a header-parsing edge
   case (a proxy stripping it, an unexpected quoting style) never blocks the actual download — only
-  the suggested filename degrades.
+  the suggested filename degrades. A later, non-phase-numbered addition:
+  `CopyEnvironmentVariables(source, dest)` — `POST /api/ledger/environments/copy-variables`, both
+  `source`/`dest` always fully environment-scoped `ScopeRef`s (`org`+`repo`+`env` all set), not
+  restricted to the currently-open org/repo (nothing in `api/`'s `ActionsRestClient` is repo-bound).
+  Returns `EnvironmentVariableCopyResult` (from `core/facades/CopySupport.ts`) — deliberately a
+  separate type from `CopyResult` above, since this is a different operation shape (N variables into
+  one target, skip-if-exists) than `Copy` (one item into N targets, always-overwrite); see
+  `Services/EnvironmentVariableCopyService.cs`'s doc comment / `docs/Architecture.md` for why it's a
+  sibling to `CopyService`, not an extension.
 - `ISecretsGateway.ts` / `BackendSecretsGateway.service.ts` — talks to the `api/` ASP.NET Core
   backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`), not `api.github.com` (Phase 3b).
   Sends a secret's plaintext value directly — sealing (public-key fetch + libsodium sealed-box

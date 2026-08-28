@@ -17,6 +17,15 @@
   - The org-level secret visibility picker (all/private/selected repositories), backed by
     `ScopesFacade.OrgReposQuery` — only fetches once "Selected repositories" is actually chosen
     (`enabled: needsVisibilityPicker() && visibility() === 'selected'`), not eagerly.
+  - A later, non-phase-numbered addition: an `initialValue` input, used only by the create flow
+    (`pastedFromClipboard` is `false` whenever `isEdit()` or `lockTarget()` is set), seeding the
+    form's `value` signal when the panel is opened via `DashboardShellComponent.HandlePasteToSection`
+    from `VariableClipboardService`'s buffer. Whenever `initialValue()` is set, the panel shows a
+    "FROM CLIPBOARD" badge next to the "Add" heading — reusing `KindBadgeComponent`'s visual recipe
+    (same `inline-flex`/`rounded`/`px-1.5 py-0.5`/`font-mono text-[10px]` classes) rather than the
+    component itself, since this badge always renders the same fixed text/tone rather than switching
+    on a `kind` the way `KindBadgeComponent` does — so a reader can tell a pre-filled form apart from
+    a blank "+ Add" one at a glance.
 
   **Built with plain writable signals + manual `(input)`/`(change)` handlers, not Angular Reactive
   Forms.** Every other form-like component in this codebase (`ScopeSidebarComponent`'s

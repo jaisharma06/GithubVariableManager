@@ -6,13 +6,23 @@
   inline in `Ledger.component.ts` because `ScopeSidebarComponent`/`DashboardShellComponent` also
   need the type for the sidebar's scope-tree navigation.
 - **`SectionHeader.component.ts`/`.html`** — a group's heading (level + scope label + description)
-  plus its own "+ Add" button.
+  plus its own "+ Add" button. A later, non-phase-numbered addition: a "Paste" affordance, shown
+  only when `VariableClipboardService.clipboard()` is non-empty (`hasClipboard`, injected directly —
+  ambient UI convenience state, the same pattern `ScopeSidebarComponent` uses for
+  `EnvironmentsFacade` rather than round-tripping through outputs), emitting `pasteVariable` on
+  click. Named after what's actually in the buffer in its tooltip (`clipboardName`) so it reads as
+  "paste what I copied", not a generic action.
 - **`LedgerRow.component.ts`/`.html`** — one variable or secret row: type badge, name, masked/
   unmasked value, access column, edit/copy/delete buttons. Also exports `ROW_GRID`, the shared
   grid-column layout string, so `Ledger.component.html` can reuse the exact same columns for its
   header row and its inline locked-row markup. The locked-row variant has no interactivity and
   only ever appears inside `Ledger.component.html`, so it's inlined there directly rather than
-  being its own component.
+  being its own component. A later, non-phase-numbered addition: a "copy value" icon action,
+  variable rows only (`HandleCopyValue`, a no-op for a secret row — secrets have no readable value
+  to copy), calling `VariableClipboardService.CopyVariable(name, value)`. Distinct from the existing
+  copy button above (which opens `CopyItemDialogComponent` to push a value out to N other scopes
+  right now) — this one holds a value in the in-app clipboard buffer for a later paste anywhere,
+  same-scope or not.
 - **`FilterBar.component.ts`/`.html`** — level/kind pill filters, an environment `<select>`, and a
   name search box. Both pill groups (level, kind) are inlined in the template sharing one
   `PillClasses()` helper rather than a generic reusable "Pills" component — with only two call
@@ -22,7 +32,9 @@
   level/scope (`GroupItems`, a free function kept in this file rather than a Facade since it's pure
   presentation shaping of already-fetched data), renders the "Hide values" toggle, the
   partial-errors banner, loading/error/empty states, and each group via `SectionHeaderComponent` +
-  `LedgerRowComponent`.
+  `LedgerRowComponent`. Forwards each group's `SectionHeaderComponent.pasteVariable` up as its own
+  `pasteToSection: { level, env? }` output, so `DashboardShellComponent` knows which section to
+  pre-fill the create form for.
 - **`CopyItemDialog.component.ts`/`.html`** — push one variable/secret's value out to a batch of
   other scopes at once. `BuildCandidates` (every other scope in the org/repo that could receive a
   copy, excluding the source, with an existing-item lookup for the overwrite/matches/not-set hint)
@@ -68,7 +80,10 @@
 `app-ledger` renders in `<main>` whenever `viewMode() !== 'compare'`. `DashboardShellComponent`
 owns the modal state: `(deleteItem)` → `ItemMutationsFacade` + `ConfirmDialogComponent`; `(add)`/
 `(addToSection)`/`(editItem)` → `editorState` signal rendering `ItemEditorPanelComponent`
-(`features/item-editor/`); `(copyItem)` → `copyTarget` signal rendering `app-copy-item-dialog`.
+(`features/item-editor/`); `(copyItem)` → `copyTarget` signal rendering `app-copy-item-dialog`;
+`(pasteToSection)` → `HandlePasteToSection`, which also opens `ItemEditorPanelComponent`'s create
+flow but pre-fills it from `VariableClipboardService`'s buffer (see `features/item-editor/README.md`
+for the `initialValue` input this relies on).
 
 ## Testing notes
 

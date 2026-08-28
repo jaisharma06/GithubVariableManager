@@ -148,7 +148,7 @@ describe('DashboardShellComponent', () => {
     const { fixture } = await CreateFixture({ owner: 'acme-corp', repo: 'widgets' }, { variables: [REPO_VARIABLE] });
     await WaitFor(fixture, () => (fixture.nativeElement as HTMLElement).textContent?.includes('API_URL') ?? false);
 
-    const copyButton = fixture.nativeElement.querySelector('[title="Copy to another environment"]') as HTMLButtonElement;
+    const copyButton = fixture.nativeElement.querySelector('[title^="Copy to other scopes"]') as HTMLButtonElement;
     copyButton.click();
     fixture.detectChanges();
 

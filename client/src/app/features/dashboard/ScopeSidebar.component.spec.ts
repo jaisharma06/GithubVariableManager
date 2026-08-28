@@ -1,10 +1,12 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { ENVIRONMENTS_GATEWAY } from '../../core/gateways/IEnvironmentsGateway';
+import { LEDGER_GATEWAY } from '../../core/gateways/ILedgerGateway';
 import { OAUTH_GATEWAY } from '../../core/gateways/IOAuthGateway';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
 import {
   CreateFakeEnvironmentsGateway,
+  CreateFakeLedgerGateway,
   CreateFakeOAuthGateway,
   CreateFakeScopesGateway,
   ProvideTestQueryClient,
@@ -25,6 +27,7 @@ describe('ScopeSidebarComponent', () => {
         provideRouter([]),
         ProvideTestQueryClient(),
         { provide: ENVIRONMENTS_GATEWAY, useValue: fakeEnvironmentsGateway },
+        { provide: LEDGER_GATEWAY, useValue: CreateFakeLedgerGateway() },
         { provide: SCOPES_GATEWAY, useValue: CreateFakeScopesGateway() },
         { provide: OAUTH_GATEWAY, useValue: CreateFakeOAuthGateway() },
       ],

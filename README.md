@@ -19,6 +19,8 @@ This tool connects to GitHub with your own credentials and gives you one filtera
 - **Filter and search** — by level (organization / repository / environment), by type (variable / secret), by environment, or by name.
 - **Create, edit, delete** — right from the list, with a level- and environment-aware form. Adding from inside a section pre-fills where the new item belongs.
 - **Copy to other scopes** — copy an existing variable or secret's value to one or more other environments (or repo/org level), editable before copying, or check off environments at creation time to fan a new value out to all of them at once. Not limited to the org/repo you currently have open, either: the copy dialog can add a destination in a different repository or organization you have access to, searched and picked the same way the scope picker works.
+- **Copy a variable, paste it anywhere** — click a variable row's "copy value" icon (distinct from "copy to other scopes" above) to hold its name and value in an in-app clipboard buffer — it also best-effort mirrors the raw value to your real OS clipboard. A "Paste" button then appears on any section (this org/repo's own sections or a completely different scope you navigate to) to open the "add variable" form pre-filled from the buffer, marked "FROM CLIPBOARD" so you can tell it apart from a blank form — nothing is created until you review and submit it yourself. The buffer sticks around until you copy something else, so pasting the same value into several places in a row is one copy and several pastes, not a copy per paste. Variables only — secrets are write-only, so there's never a value to copy.
+- **Copy all variables from one environment to another** — from an environment's row in the sidebar, pick any other environment (in this repo, another repo, or another org entirely) as a destination and copy every one of the source's variables into it in one action. Any occurrence of the source environment's name inside a value is replaced with the destination's name; a variable whose name already exists at the destination is skipped, never overwritten, and the result shows exactly what was copied, skipped, or failed. Both environments must already exist first — this doesn't create one for you.
 - **Compare view** — a matrix of every name across whichever environments (and repo/org) you select, with inline edit, per-cell copy, and one-click "delete this from every scope it's in" with a warning listing exactly what's affected.
 - **Rename an environment** — GitHub has no rename API for environments, so this creates the new one, copies every variable's value across, and removes the old one (secrets can't be silently carried over — see below — so you're asked to re-add them and confirm before the old environment is deleted).
 - **Self-hosted runners at a glance** — a sidebar panel showing every runner assigned to the repo (or org), with live online/offline/busy status.
@@ -171,8 +173,10 @@ GithubVariablesManager/
 │       ├── features/
 │       │   ├── auth/             # PAT + OAuth device-flow connect screen, route guard
 │       │   ├── scope-picker/     # Choose an org or repo
-│       │   ├── dashboard/        # Screen shell: sidebar, runners panel, rename-environment dialog
-│       │   ├── ledger/           # The main variables/secrets list + copy-to-scopes dialog
+│       │   ├── dashboard/        # Screen shell: sidebar, runners panel, rename-environment and
+│       │   │                     # copy-environment-variables dialogs
+│       │   ├── ledger/           # The main variables/secrets list + copy-to-scopes dialog +
+│       │   │                     # copy-variable-to-clipboard/paste affordances
 │       │   ├── item-editor/      # Create/edit slide-over panel
 │       │   ├── compare/          # Matrix view for comparing/editing across scopes
 │       │   └── workflows/        # Browse workflows, view runs, bulk-delete run history

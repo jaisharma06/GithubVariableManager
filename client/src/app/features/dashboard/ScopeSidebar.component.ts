@@ -33,6 +33,7 @@ export class ScopeSidebarComponent {
   readonly navigate = output<ScopeNavigateEvent>();
   readonly renameEnvironment = output<string>();
   readonly deleteEnvironment = output<string>();
+  readonly copyEnvironment = output<string>();
 
   private readonly environmentsFacade = inject(EnvironmentsFacade);
   private readonly injector = inject(Injector);
@@ -55,7 +56,7 @@ export class ScopeSidebarComponent {
   }
 
   protected EnvironmentRowClasses(active: boolean): string {
-    return `group flex items-center rounded-md transition-colors ${active ? 'bg-brand-dim' : 'hover:bg-panel-raised'}`;
+    return `group flex items-center gap-0.5 rounded-md transition-colors ${active ? 'bg-brand-dim' : 'hover:bg-panel-raised'}`;
   }
 
   protected EnvironmentLabelClasses(active: boolean): string {

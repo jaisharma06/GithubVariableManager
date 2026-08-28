@@ -1,6 +1,12 @@
 import { InjectionToken } from '@angular/core';
-import type { ItemKind } from '../Types';
-import type { CopyResult, CopyTarget, DeleteEverywhereResult, DeleteEverywhereTarget } from '../facades/CopySupport';
+import type { ItemKind, ScopeRef } from '../Types';
+import type {
+  CopyResult,
+  CopyTarget,
+  DeleteEverywhereResult,
+  DeleteEverywhereTarget,
+  EnvironmentVariableCopyResult,
+} from '../facades/CopySupport';
 import type { LedgerResult } from '../facades/LedgerSupport';
 import type { PutSecretOptions } from './ISecretsGateway';
 
@@ -32,6 +38,14 @@ export interface ILedgerGateway {
   DeleteEverywhere(kind: ItemKind, name: string, targets: DeleteEverywhereTarget[]): Promise<DeleteEverywhereResult[]>;
   /** Downloads the current scope's ledger as an `.xlsx` workbook — `GET /api/ledger/export`. */
   ExportLedger(org: string, repo?: string): Promise<{ blob: Blob; filename: string }>;
+  /**
+   * Copies every variable from one environment to another — `POST /api/ledger/environments/copy-variables`.
+   * `source`/`dest` are always fully environment-scoped (`org`+`repo`+`env` all set); not
+   * restricted to the currently-open org/repo, since nothing in `api/`'s `ActionsRestClient` is
+   * repo-bound. See `Services/EnvironmentVariableCopyService.cs`'s doc comment for the full design
+   * (skip-if-exists by name, case-sensitive substring value replace, per-variable failure isolation).
+   */
+  CopyEnvironmentVariables(source: ScopeRef, dest: ScopeRef): Promise<EnvironmentVariableCopyResult>;
 }
 
 export const LEDGER_GATEWAY = new InjectionToken<ILedgerGateway>('LEDGER_GATEWAY');

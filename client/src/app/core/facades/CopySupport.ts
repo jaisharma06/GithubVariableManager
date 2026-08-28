@@ -23,3 +23,16 @@ export interface DeleteEverywhereResult {
   ok: boolean;
   message?: string;
 }
+
+/** Result shape for `ILedgerGateway.CopyEnvironmentVariables` — port of `api/`'s `CopyEnvironmentVariablesResponse`. */
+export interface EnvironmentVariableCopyFailure {
+  name: string;
+  message: string;
+}
+
+export interface EnvironmentVariableCopyResult {
+  listSourceError?: string;
+  copied: string[];
+  skipped: string[];
+  failures: EnvironmentVariableCopyFailure[];
+}

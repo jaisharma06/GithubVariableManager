@@ -98,6 +98,7 @@
                 [scopeLabel]="group.scopeLabel"
                 [description]="group.description"
                 (add)="addToSection.emit({ level: group.level, env: group.env })"
+                (pasteVariable)="pasteToSection.emit({ level: group.level, env: group.env })"
               />
               <div class="mt-1.5 overflow-hidden rounded-lg border border-line">
                 @for (item of group.items; track item.id) {
