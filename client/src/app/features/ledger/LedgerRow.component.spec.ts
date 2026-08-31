@@ -104,12 +104,11 @@ describe('LedgerRowComponent', () => {
     unresolvedReferences: [],
   };
 
-  it('shows the resolved value and a composite badge for a composite variable, with the raw formula in a tooltip', async () => {
+  it('shows the resolved value for a composite variable, with the raw formula in a tooltip', async () => {
     fixture = await CreateFixture(COMPOSITE_VARIABLE);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
     expect(text).toContain('https://example.com/cdn');
-    expect(text).toContain('ƒ(x)');
     const formulaEl = (fixture.nativeElement as HTMLElement).querySelector('[title^="Formula: "]') as HTMLElement;
     expect(formulaEl.title).toContain('$(BASE_URL)/cdn');
   });

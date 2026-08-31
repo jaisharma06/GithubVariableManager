@@ -24,11 +24,10 @@
   right now) — this one holds a value in the in-app clipboard buffer for a later paste anywhere,
   same-scope or not. Another later, non-phase-numbered addition: composite-variable
   (`$(OtherVarName)`) display. `isComposite` (variables only, `LedgerSupport.IsCompositeValue`
-  against `item().value`) shows a small `ƒ(x)` badge (reusing `KindBadgeComponent`'s visual recipe,
-  not the component itself, same precedent the "FROM CLIPBOARD" badge in `features/item-editor/`
-  set) with the raw formula in its tooltip, plus the resolved value in place of the row's usual
-  value text — `item().resolvedValue`, populated server-side by `LedgerService`'s read-time pass, not
-  computed here. `hasUnresolvedReferences` swaps in a warning icon + the still-otherwise-resolved
+  against `item().value`) swaps in the resolved value — `item().resolvedValue`, populated
+  server-side by `LedgerService`'s read-time pass, not computed here — in place of the row's usual
+  value text, with the raw formula available in a `title` tooltip on hover (no separate badge: the
+  resolved value is the thing worth reading at a glance). `hasUnresolvedReferences` swaps in a warning icon + the still-otherwise-resolved
   value when `item().unresolvedReferences` is non-empty — a broken reference stays visible in place
   rather than disappearing, a confirmed product decision (see `docs/Architecture.md`). A new
   `flattenItem` output (`canFlatten`: composite **and** `item().resolvedValue` is defined — nothing

@@ -66,10 +66,20 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   `UpdateLedgerItems` helpers using `injectQueryClient()`) and a rollback on failure. `renameSecret`
   (Phase 3b) is one `ISecretsGateway.RenameSecret` call now rather than a sequential
   `PutSecret`-then-`DeleteSecret`, since that orchestration (plus the sealing it needs) moved
-  server-side; it also has an `onSuccess` handler (the other mutations don't need one) that
-  invalidates the `['ledger']` query when the backend reports `deleteSucceeded: false` — the old
-  name genuinely still exists on GitHub in that case, so the optimistic "clean rename" patch from
-  `onMutate` would otherwise be silently wrong until the next unrelated refetch. (Phase 6 removed
+  server-side; its `onSuccess` handler invalidates the `['ledger']` query when the backend reports
+  `deleteSucceeded: false` — the old name genuinely still exists on GitHub in that case, so the
+  optimistic "clean rename" patch from `onMutate` would otherwise be silently wrong until the next
+  unrelated refetch. Every other mutation *also* has an
+  unconditional `onSuccess` invalidating `['ledger']` — a claim in an earlier revision of this doc
+  that they "don't need one" predates composite variables and no longer holds: a composite item's
+  `resolvedValue`/`unresolvedReferences` are computed server-side from every *other* variable in
+  the ledger response (`LedgerSupport.ts`'s `IsCompositeValue`/`ExtractReferences` describe the
+  syntax; `api/Services/CompositeVariableResolver.cs` does the resolving), and the optimistic patch
+  here only ever touches the mutated row itself — it never recomputes any *other* row's resolution.
+  Without the `onSuccess` invalidation, saving/deleting a variable or secret left every composite
+  row that referenced it stale until an unrelated event happened to trigger a refetch (30s
+  `staleTime` elapsing, window refocus, or a hard reload building a fresh `QueryClient`). (Phase 6
+  removed
   the seventh field, `upsertVariable` — it existed only for `CopyFacade.CopyTo`'s old client-side
   variable branch, which now calls `ILedgerGateway.Copy` directly instead; see the `CopyFacade.ts`
   entry below.)

@@ -65,6 +65,14 @@ export class ItemMutationsFacade {
       this.UpdateLedgerItems((items) => [...items, OptimisticVariable(p.level, p.scope, p.name, p.value)]);
       return { snapshot };
     },
+    // Composite variables (`$(OtherVarName)` formulas) have their `resolvedValue`/
+    // `unresolvedReferences` computed server-side from every *other* variable in the ledger
+    // response — the optimistic patch above never sets those fields. Invalidate on success so any
+    // composite row that depends on this one picks up its freshly-resolved value on next refetch,
+    // mirroring EnvironmentsFacade's renameEnvironment/copyEnvironmentVariables.
+    onSuccess: () => {
+      this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
+    },
     onError: (_err, _p, context) => {
       if (context) this.RestoreLedger(context.snapshot);
     },
@@ -85,6 +93,11 @@ export class ItemMutationsFacade {
       );
       return { snapshot };
     },
+    // See createVariable's onSuccess above — composite rows elsewhere in the ledger may resolve
+    // against this variable's new name/value.
+    onSuccess: () => {
+      this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
+    },
     onError: (_err, _p, context) => {
       if (context) this.RestoreLedger(context.snapshot);
     },
@@ -98,6 +111,11 @@ export class ItemMutationsFacade {
         items.filter((i) => !(i.kind === 'variable' && i.level === p.level && i.name === p.name && SameScope(i.scope, p.scope))),
       );
       return { snapshot };
+    },
+    // See createVariable's onSuccess above — composite rows elsewhere in the ledger may have
+    // referenced this now-deleted variable and need to show as unresolved.
+    onSuccess: () => {
+      this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },
     onError: (_err, _p, context) => {
       if (context) this.RestoreLedger(context.snapshot);
@@ -116,6 +134,11 @@ export class ItemMutationsFacade {
           : [...items, OptimisticSecret(p.level, p.scope, p.name, p.options?.visibility)],
       );
       return { snapshot };
+    },
+    // See createVariable's onSuccess above — a secret's mere existence (name/visibility) can be
+    // referenced by composite variables elsewhere in the ledger.
+    onSuccess: () => {
+      this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },
     onError: (_err, _p, context) => {
       if (context) this.RestoreLedger(context.snapshot);
@@ -172,6 +195,11 @@ export class ItemMutationsFacade {
         items.filter((i) => !(i.kind === 'secret' && i.level === p.level && i.name === p.name && SameScope(i.scope, p.scope))),
       );
       return { snapshot };
+    },
+    // See createVariable's onSuccess above — composite rows elsewhere in the ledger may have
+    // referenced this now-deleted secret and need to show as unresolved.
+    onSuccess: () => {
+      this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },
     onError: (_err, _p, context) => {
       if (context) this.RestoreLedger(context.snapshot);

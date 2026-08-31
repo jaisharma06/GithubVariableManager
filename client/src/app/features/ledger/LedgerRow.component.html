@@ -27,15 +27,8 @@
     } @else if (masked()) {
       <span class="tracking-widest text-text-dim">••••••••••••</span>
     } @else if (isComposite()) {
-      <!-- flex + min-w-0 (not inline-flex) so the resolved-value text truncates on its own inside this flex row instead of the whole row being hard-clipped by the parent cell's `truncate` — same nesting idiom WorkflowRunsList uses for its run-title cell. -->
+      <!-- flex + min-w-0 (not inline-flex) so the resolved-value text truncates on its own inside this flex row instead of the whole row being hard-clipped by the parent cell's `truncate` — same nesting idiom WorkflowRunsList uses for its run-title cell. No separate "ƒ(x)" badge here: the resolved value itself is the primary thing to read at a glance, and the raw formula is still one hover away via the `title` on each branch below. -->
       <span class="flex min-w-0 items-center gap-1.5">
-        <!-- Same badge recipe as KindBadgeComponent/the "FROM CLIPBOARD" badge (inline-flex/rounded/px-1.5 py-0.5/font-mono text-[10px]) — reused rather than the component itself since this fires on a fixed condition (isComposite), not a switched `kind`. Distinct brand/teal tone (vs. the amber "VAR" badge and the variable-accent "FROM CLIPBOARD" badge) so it never reads as another kind/provenance badge — it's marking "this value is computed", a different axis entirely. -->
-        <span
-          class="inline-flex shrink-0 items-center rounded bg-brand-dim px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-brand"
-          [title]="'Formula: ' + item().value"
-        >
-          ƒ(x)
-        </span>
         @if (hasUnresolvedReferences()) {
           <span
             class="flex min-w-0 items-center gap-1 text-danger"
