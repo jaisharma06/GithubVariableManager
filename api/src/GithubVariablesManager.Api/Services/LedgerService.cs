@@ -24,7 +24,11 @@ public sealed class LedgerUnavailableException(string message) : Exception(messa
 /// plus one variables+secrets job per environment on that repo, plus org-level variables+secrets
 /// only if the repo's owning account is verified as an actual Organization.
 /// </summary>
-public sealed class LedgerService(ActionsRestClient actionsRestClient, EnvironmentsService environmentsService, ScopesService scopesService)
+public sealed class LedgerService(
+    ActionsRestClient actionsRestClient,
+    EnvironmentsService environmentsService,
+    ScopesService scopesService,
+    CompositeVariableResolver compositeVariableResolver)
 {
     public async Task<LedgerResponse> GetLedgerAsync(string org, string? repo)
     {
@@ -74,7 +78,31 @@ public sealed class LedgerService(ActionsRestClient actionsRestClient, Environme
             throw new LedgerUnavailableException(string.Join("; ", partialErrors.Select(e => $"{e.Label} — {e.Message}")));
         }
 
-        return new LedgerResponse(items, partialErrors, lockedSections);
+        return new LedgerResponse(ResolveComposites(items), partialErrors, lockedSections);
+    }
+
+    /// <summary>
+    /// Read-time display resolution (automatic, default — see docs/Architecture.md's composite-
+    /// variables section): every composite variable in this response is resolved fresh against the
+    /// other variables already fetched in this same request, no extra GitHub calls. Recomputed on
+    /// every load, so there's nothing to keep "live" between reads. Non-composite items and every
+    /// secret pass through unchanged (their trailing ResolvedValue/UnresolvedReferences stay null).
+    /// </summary>
+    private List<LedgerItemResponse> ResolveComposites(List<LedgerItemResponse> items)
+    {
+        return items
+            .Select(item =>
+            {
+                if (item.Kind != "variable" || item.Value is null || !CompositeVariableResolver.IsComposite(item.Value))
+                {
+                    return item;
+                }
+
+                var lookup = CompositeVariableResolver.BuildLookupFromItems(items, item.Level, item.Org, item.Repo, item.Env);
+                var result = compositeVariableResolver.Resolve(item.Name, item.Value, lookup);
+                return item with { ResolvedValue = result.ResolvedValue, UnresolvedReferences = result.UnresolvedReferences };
+            })
+            .ToList();
     }
 
     /// <summary>

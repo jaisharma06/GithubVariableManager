@@ -118,6 +118,7 @@
           (editItem)="HandleEditItem($event)"
           (copyItem)="copyTarget.set($event)"
           (deleteItem)="deleteTarget.set($event)"
+          (flattenItem)="HandleFlattenItem($event)"
         />
       }
     </main>
@@ -159,6 +160,34 @@
       (cancelled)="HandleCancelDeleteItem()"
     >
       This removes it from GitHub at the {{ target.level }} level. This can&rsquo;t be undone.
+      @if (deleteItemDependents().length > 0) {
+        <p class="mt-2 text-danger">
+          {{ deleteItemDependents().length }} other {{ deleteItemDependents().length === 1 ? 'variable' : 'variables' }}
+          reference this with <span class="font-mono">$({{ target.name }})</span> and will show a broken reference
+          afterward:
+        </p>
+        <ul class="mt-1 list-inside list-disc space-y-0.5">
+          @for (d of deleteItemDependents(); track d.id) {
+            <li class="font-mono text-xs">{{ d.name }} ({{ DependentScopeLabel(d) }})</li>
+          }
+        </ul>
+      }
+    </app-confirm-dialog>
+  }
+
+  @if (flattenTarget(); as target) {
+    <app-confirm-dialog
+      [title]="flattenTitle()"
+      confirmLabel="Flatten"
+      confirmingLabel="Flattening…"
+      [error]="flattenError()"
+      [confirming]="flattenPending()"
+      (confirmed)="HandleConfirmFlattenItem()"
+      (cancelled)="HandleCancelFlattenItem()"
+    >
+      This overwrites the formula <span class="font-mono text-text">{{ target.value }}</span> with today&rsquo;s
+      resolved value <span class="font-mono text-text">{{ target.resolvedValue }}</span>. The formula can&rsquo;t be
+      recovered afterward.
     </app-confirm-dialog>
   }
 

@@ -1,4 +1,5 @@
 import { Component, computed, inject, input, output } from '@angular/core';
+import { IsCompositeValue } from '../../core/facades/LedgerSupport';
 import { VariableClipboardService } from '../../core/services/VariableClipboardService';
 import type { LedgerItem } from '../../core/Types';
 
@@ -22,6 +23,8 @@ export class LedgerRowComponent {
   readonly editItem = output<void>();
   readonly copyItem = output<void>();
   readonly deleteItem = output<void>();
+  /** "Flatten to literal" — overwrites the stored formula with today's resolved value, via the existing update-variable mutation. Composite variables only; see Ledger.component.ts/DashboardShellComponent for the confirm-dialog + mutation this bubbles up to. */
+  readonly flattenItem = output<void>();
 
   private readonly variableClipboardService = inject(VariableClipboardService);
 
@@ -29,6 +32,17 @@ export class LedgerRowComponent {
   protected readonly isSecret = computed(() => this.item().kind === 'secret');
   protected readonly masked = computed(() => this.isSecret() || this.hideValues());
   protected readonly railClass = computed(() => (this.isSecret() ? 'bg-secret' : 'bg-variable'));
+
+  /**
+   * Azure-App-Config-style `$(OtherVarName)` composite variable — GitHub has no concept of this,
+   * so "is composite" is always derived from the value itself, never a stored flag (see
+   * `api/Services/CompositeVariableResolver.cs`'s doc comment for the full design this mirrors).
+   * Variables only — a secret's value gets no composite UI at all.
+   */
+  protected readonly isComposite = computed(() => !this.isSecret() && this.item().value !== undefined && IsCompositeValue(this.item().value!));
+  protected readonly hasUnresolvedReferences = computed(() => (this.item().unresolvedReferences?.length ?? 0) > 0);
+  /** Nothing to flatten to when the formula is circular (LedgerService's read-time pass leaves resolvedValue undefined in that case) — the flatten action is hidden rather than offering a broken no-op. */
+  protected readonly canFlatten = computed(() => this.isComposite() && this.item().resolvedValue !== undefined);
 
   /** Variable-only, mirroring CopyItemDialogComponent's rule that a secret's value can never be silently carried over. */
   protected HandleCopyValue(): void {

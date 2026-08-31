@@ -22,7 +22,21 @@
   to copy), calling `VariableClipboardService.CopyVariable(name, value)`. Distinct from the existing
   copy button above (which opens `CopyItemDialogComponent` to push a value out to N other scopes
   right now) — this one holds a value in the in-app clipboard buffer for a later paste anywhere,
-  same-scope or not.
+  same-scope or not. Another later, non-phase-numbered addition: composite-variable
+  (`$(OtherVarName)`) display. `isComposite` (variables only, `LedgerSupport.IsCompositeValue`
+  against `item().value`) shows a small `ƒ(x)` badge (reusing `KindBadgeComponent`'s visual recipe,
+  not the component itself, same precedent the "FROM CLIPBOARD" badge in `features/item-editor/`
+  set) with the raw formula in its tooltip, plus the resolved value in place of the row's usual
+  value text — `item().resolvedValue`, populated server-side by `LedgerService`'s read-time pass, not
+  computed here. `hasUnresolvedReferences` swaps in a warning icon + the still-otherwise-resolved
+  value when `item().unresolvedReferences` is non-empty — a broken reference stays visible in place
+  rather than disappearing, a confirmed product decision (see `docs/Architecture.md`). A new
+  `flattenItem` output (`canFlatten`: composite **and** `item().resolvedValue` is defined — nothing
+  to flatten to for a circular formula, so the action is hidden rather than offering a broken no-op)
+  fires an icon action that `DashboardShellComponent` catches to open a confirm dialog before
+  overwriting the formula with today's resolved literal (see `features/dashboard/README.md`) — the
+  actual mutation is the existing update-variable one, reused as-is; this component only emits the
+  intent.
 - **`FilterBar.component.ts`/`.html`** — level/kind pill filters, an environment `<select>`, and a
   name search box. Both pill groups (level, kind) are inlined in the template sharing one
   `PillClasses()` helper rather than a generic reusable "Pills" component — with only two call
@@ -34,7 +48,9 @@
   partial-errors banner, loading/error/empty states, and each group via `SectionHeaderComponent` +
   `LedgerRowComponent`. Forwards each group's `SectionHeaderComponent.pasteVariable` up as its own
   `pasteToSection: { level, env? }` output, so `DashboardShellComponent` knows which section to
-  pre-fill the create form for.
+  pre-fill the create form for. Also bubbles `LedgerRowComponent.flattenItem` straight up as its own
+  `flattenItem` output (composite-variable support, see the `LedgerRow.component.ts`/`.html` entry
+  above) — no shaping needed here, same pass-through as `editItem`/`copyItem`/`deleteItem`.
 - **`CopyItemDialog.component.ts`/`.html`** — push one variable/secret's value out to a batch of
   other scopes at once. `BuildCandidates` (every other scope in the org/repo that could receive a
   copy, excluding the source, with an existing-item lookup for the overwrite/matches/not-set hint)

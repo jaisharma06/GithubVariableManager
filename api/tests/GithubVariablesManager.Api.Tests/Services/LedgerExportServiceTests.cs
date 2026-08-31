@@ -13,7 +13,7 @@ public class LedgerExportServiceTests
         var actionsRestClient = new ActionsRestClient(factory);
         var environmentsService = new EnvironmentsService(actionsRestClient);
         var scopesService = new ScopesService(factory);
-        var ledgerService = new LedgerService(actionsRestClient, environmentsService, scopesService);
+        var ledgerService = new LedgerService(actionsRestClient, environmentsService, scopesService, new CompositeVariableResolver(actionsRestClient));
         return new LedgerExportService(ledgerService);
     }
 
@@ -38,20 +38,40 @@ public class LedgerExportServiceTests
         Assert.Equal("Name", sheet.Cell(1, 1).GetString());
         Assert.Equal("Kind", sheet.Cell(1, 2).GetString());
         Assert.Equal("Value", sheet.Cell(1, 3).GetString());
-        Assert.Equal("Visibility", sheet.Cell(1, 4).GetString());
+        Assert.Equal("Resolved Value", sheet.Cell(1, 4).GetString());
+        Assert.Equal("Visibility", sheet.Cell(1, 5).GetString());
 
         // Variable sorts before secret, matching Ledger.component.ts's GroupItems order.
         Assert.Equal("V1", sheet.Cell(2, 1).GetString());
         Assert.Equal("variable", sheet.Cell(2, 2).GetString());
         Assert.Equal("v", sheet.Cell(2, 3).GetString());
+        Assert.Equal("", sheet.Cell(2, 4).GetString()); // not composite -> Resolved Value blank
 
         Assert.Equal("S1", sheet.Cell(3, 1).GetString());
         Assert.Equal("secret", sheet.Cell(3, 2).GetString());
         Assert.Equal(LedgerExportService.SecretValueMarker, sheet.Cell(3, 3).GetString());
         Assert.NotEqual(LedgerExportService.SecretValueMarker, "v"); // sanity: never the actual value
-        Assert.Equal("all", sheet.Cell(3, 4).GetString()); // org-level secret -> visibility populated
+        Assert.Equal("all", sheet.Cell(3, 5).GetString()); // org-level secret -> visibility populated
 
-        Assert.True(sheet.Cell(2, 5).GetDateTime() > DateTime.MinValue); // real Excel date cell, not a string
+        Assert.True(sheet.Cell(2, 6).GetDateTime() > DateTime.MinValue); // real Excel date cell, not a string
+    }
+
+    [Fact]
+    public async Task ExportAsync_CompositeVariable_ResolvedValueColumnPopulated_RawValueColumnUnchanged()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":2,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"CDN","value":"$(BASE_URL)/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var (content, _) = await service.ExportAsync("octo-org", null);
+
+        using var workbook = OpenWorkbook(content);
+        var sheet = workbook.Worksheet("Organization");
+        var cdnRow = Enumerable.Range(2, sheet.LastRowUsed()!.RowNumber() - 1).First(r => sheet.Cell(r, 1).GetString() == "CDN");
+
+        Assert.Equal("$(BASE_URL)/cdn", sheet.Cell(cdnRow, 3).GetString()); // raw formula, unchanged
+        Assert.Equal("https://example.com/cdn", sheet.Cell(cdnRow, 4).GetString()); // resolved literal
     }
 
     [Fact]
@@ -92,7 +112,7 @@ public class LedgerExportServiceTests
         using var workbook = OpenWorkbook(content);
         var sheet = workbook.Worksheet("Repository");
         Assert.Equal("S1", sheet.Cell(2, 1).GetString());
-        Assert.Equal("", sheet.Cell(2, 4).GetString());
+        Assert.Equal("", sheet.Cell(2, 5).GetString());
     }
 
     [Fact]

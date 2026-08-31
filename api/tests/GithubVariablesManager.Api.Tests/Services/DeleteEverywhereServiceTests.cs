@@ -20,7 +20,7 @@ public class DeleteEverywhereServiceTests
     private static DeleteEverywhereService CreateService(FakeHttpMessageHandler handler)
     {
         var actionsRestClient = new ActionsRestClient(new FakeGitHubClientFactory(handler));
-        return new DeleteEverywhereService(new ItemMutationService(actionsRestClient, new SecretSealingService()));
+        return new DeleteEverywhereService(new ItemMutationService(actionsRestClient, new SecretSealingService(), new CompositeVariableResolver(actionsRestClient)));
     }
 
     [Fact]

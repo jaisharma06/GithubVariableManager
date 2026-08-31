@@ -53,7 +53,13 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   with no cache-worthy state (nothing about "did I export" belongs in the TanStack Query cache), the
   same reasoning `WorkflowsFacade.DeleteRuns` already established for this Facade's start+poll bulk
   delete — the caller (`DashboardShellComponent`) owns its own `exporting`/`exportError` pending
-  signals rather than reading `isPending`/`error` off a mutation object.
+  signals rather than reading `isPending`/`error` off a mutation object. A later, non-phase-numbered
+  addition: `ResolveVariable(scope, level, name, value)` is another plain `async` passthrough (to
+  `ILedgerGateway.ResolveVariable`), same one-shot-imperative-not-a-query shape as `ExportLedger` —
+  preview-only composite-variable resolution (`POST /api/ledger/variables/resolve`) with no
+  cache-worthy state; `ItemEditorPanelComponent`'s live-resolve preview owns its own
+  `resolvePreview`/`resolvingPreview` signals rather than this Facade wrapping the call in an
+  `injectQuery`.
 - **`ItemMutationsFacade.ts`** — six `injectMutation` fields: `createVariable`, `updateVariable`,
   `deleteVariable`, `putSecret`, `renameSecret`, `deleteSecret`. Each has `onMutate`/`onError` doing
   an optimistic patch of the ledger cache (via private `SnapshotLedger`/`RestoreLedger`/
@@ -87,7 +93,23 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   types `ILedgerGateway`/`BackendLedgerGateway.service.ts` consume): `SameScope`, `ErrorMessage`,
   `OptimisticVariable`, `OptimisticSecret`; plus the `LedgerPartialError`/`LedgerLockedSection`/
   `LedgerResult` types. `RunLedgerJobs`/`JobLabel`/`LedgerJob` (the client-side fan-out) were
-  deleted once that logic moved server-side — see `LedgerFacade.ts` above.
+  deleted once that logic moved server-side — see `LedgerFacade.ts` above. A later,
+  non-phase-numbered addition: composite-variable support (Azure-App-Config-style `$(OtherVarName)`
+  formulas, variables only). `IsCompositeValue`/`ExtractReferences` are pure regex helpers kept in
+  sync **by hand** with `api/Services/CompositeVariableResolver.cs`'s `ReferencePattern` (same
+  pattern, same "letters/digits/underscore, must not start with a digit" name rule) — deliberately
+  duplicated rather than shared across the stack, since there's no code-sharing mechanism between
+  `client/` and `api/` in this repo. Two separate `RegExp` instances back them (one without the
+  global flag for `.test()`, one with it for `.matchAll()`) — a single global-flag regex would carry
+  `lastIndex` state between calls and silently break repeated `.test()` calls. `FindDependents(items,
+  name, scope)` is a reverse-dependency scan over already-fetched ledger data: every variable whose
+  formula references `name` at `scope`, restricted by a private `InScopeChain` helper to items that
+  could actually *see* that name per the environment > repository > organization precedence chain
+  (so a same-named variable at an unrelated scope never shows up as a false positive) — used by
+  `DashboardShellComponent`/`CompareViewComponent` to warn "N other variables reference this" before
+  a delete. Kept here as a free function (this file's existing `SameScope`/`OptimisticVariable`
+  convention) rather than a Facade method, since it's a synchronous scan over data the caller already
+  has, not a query/mutation.
 - **`WorkflowsFacade.ts`** — `WorkflowsQuery(org, repo)`/`WorkflowRunsQuery(org, repo, workflowId)`/
   `WorkflowRunDetailQuery(org, repo, runId)` (methods, same reasoning as `ScopesFacade`/
   `EnvironmentsFacade` above); `deleteWorkflowRun`/`rerunWorkflowRun` are shared `injectMutation`

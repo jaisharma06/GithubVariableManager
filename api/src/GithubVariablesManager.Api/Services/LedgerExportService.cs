@@ -111,9 +111,10 @@ public sealed class LedgerExportService(LedgerService ledgerService)
         sheet.Cell(1, 1).Value = "Name";
         sheet.Cell(1, 2).Value = "Kind";
         sheet.Cell(1, 3).Value = "Value";
-        sheet.Cell(1, 4).Value = "Visibility";
-        sheet.Cell(1, 5).Value = "Created";
-        sheet.Cell(1, 6).Value = "Updated";
+        sheet.Cell(1, 4).Value = "Resolved Value";
+        sheet.Cell(1, 5).Value = "Visibility";
+        sheet.Cell(1, 6).Value = "Created";
+        sheet.Cell(1, 7).Value = "Updated";
         sheet.Row(1).Style.Font.Bold = true;
 
         var sorted = items
@@ -127,14 +128,18 @@ public sealed class LedgerExportService(LedgerService ledgerService)
             sheet.Cell(row, 1).Value = item.Name;
             sheet.Cell(row, 2).Value = item.Kind;
             sheet.Cell(row, 3).Value = item.Kind == "secret" ? SecretValueMarker : item.Value ?? "";
-            sheet.Cell(row, 4).Value = item.Visibility ?? "";
+            // Additive column — the existing "Value" column above stays the raw formula unchanged
+            // for every composite row; this is populated only when LedgerService's read-time
+            // resolution pass actually produced one (composite variables only, never secrets).
+            sheet.Cell(row, 4).Value = item.ResolvedValue ?? "";
+            sheet.Cell(row, 5).Value = item.Visibility ?? "";
             // XLCellValue has no DateTimeOffset conversion — Excel dates carry no timezone
             // concept, so this converts to UTC DateTime first (CreatedAt/UpdatedAt are already
             // UTC-sourced from GitHub).
-            sheet.Cell(row, 5).Value = item.CreatedAt.UtcDateTime;
-            sheet.Cell(row, 5).Style.DateFormat.Format = "yyyy-mm-dd hh:mm:ss";
-            sheet.Cell(row, 6).Value = item.UpdatedAt.UtcDateTime;
+            sheet.Cell(row, 6).Value = item.CreatedAt.UtcDateTime;
             sheet.Cell(row, 6).Style.DateFormat.Format = "yyyy-mm-dd hh:mm:ss";
+            sheet.Cell(row, 7).Value = item.UpdatedAt.UtcDateTime;
+            sheet.Cell(row, 7).Style.DateFormat.Format = "yyyy-mm-dd hh:mm:ss";
             row++;
         }
 

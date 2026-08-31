@@ -27,7 +27,7 @@ public class CopyServiceTests
     private static CopyService CreateService(FakeHttpMessageHandler handler)
     {
         var actionsRestClient = new ActionsRestClient(new FakeGitHubClientFactory(handler));
-        return new CopyService(new ItemMutationService(actionsRestClient, new SecretSealingService()));
+        return new CopyService(new ItemMutationService(actionsRestClient, new SecretSealingService(), new CompositeVariableResolver(actionsRestClient)));
     }
 
     private const string ExistingVariableJson =

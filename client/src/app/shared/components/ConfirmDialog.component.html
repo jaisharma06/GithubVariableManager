@@ -21,7 +21,7 @@
     <div class="mt-5 flex justify-end gap-2">
       <app-button variant="ghost" [disabled]="confirming()" (click)="cancelled.emit()">Cancel</app-button>
       <app-button #confirmButton variant="danger" [disabled]="confirming()" (click)="confirmed.emit()">
-        {{ confirming() ? 'Deleting…' : confirmLabel() }}
+        {{ confirming() ? confirmingLabel() : confirmLabel() }}
       </app-button>
     </div>
   </div>

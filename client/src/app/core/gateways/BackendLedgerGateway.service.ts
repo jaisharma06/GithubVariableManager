@@ -12,7 +12,7 @@ import type {
 } from '../facades/CopySupport';
 import type { LedgerLockedSection, LedgerPartialError, LedgerResult } from '../facades/LedgerSupport';
 import { ItemId } from './GithubPathBuilder';
-import type { ILedgerGateway } from './ILedgerGateway';
+import type { ILedgerGateway, ResolveVariableResult } from './ILedgerGateway';
 import type { PutSecretOptions } from './ISecretsGateway';
 
 interface LedgerItemResponse {
@@ -26,6 +26,24 @@ interface LedgerItemResponse {
   visibility: LedgerItem['visibility'] | null;
   createdAt: string;
   updatedAt: string;
+  resolvedValue: string | null;
+  unresolvedReferences: string[] | null;
+}
+
+interface ResolveVariableRequest {
+  org: string;
+  repo?: string;
+  env?: string;
+  level: ItemLevel;
+  name: string;
+  value: string;
+}
+
+interface ResolveVariableResponse {
+  resolvedValue: string | null;
+  unresolvedReferences: string[];
+  circular: boolean;
+  circularError: string | null;
 }
 
 interface LedgerLockedSectionResponse {
@@ -213,6 +231,21 @@ export class BackendLedgerGateway implements ILedgerGateway {
     };
   }
 
+  async ResolveVariable(scope: ScopeRef, level: ItemLevel, name: string, value: string): Promise<ResolveVariableResult> {
+    const request: ResolveVariableRequest = { org: scope.org, repo: scope.repo, env: scope.env, level, name, value };
+
+    const data = await firstValueFrom(
+      this.http.post<ResolveVariableResponse>(`${environment.backendApiBaseUrl}/api/ledger/variables/resolve`, request),
+    );
+
+    return {
+      resolvedValue: data.resolvedValue ?? undefined,
+      unresolvedReferences: data.unresolvedReferences,
+      circular: data.circular,
+      circularError: data.circularError ?? undefined,
+    };
+  }
+
   /**
    * Parses the filename out of the response's `Content-Disposition` header. Falls back to
    * recomputing it locally, in the same format the server builds it in, so a header-parsing edge
@@ -243,6 +276,8 @@ export class BackendLedgerGateway implements ILedgerGateway {
       visibility: item.visibility ?? undefined,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
+      resolvedValue: item.resolvedValue ?? undefined,
+      unresolvedReferences: item.unresolvedReferences ?? undefined,
     };
   }
 

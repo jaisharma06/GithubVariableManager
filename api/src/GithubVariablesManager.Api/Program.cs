@@ -75,6 +75,12 @@ builder.Services.AddScoped<ActionsRestClient>();
 builder.Services.AddScoped<LedgerService>();
 builder.Services.AddScoped<EnvironmentsService>();
 builder.Services.AddScoped<SecretSealingService>();
+
+// Composite-variable support (Azure-App-Config-style $(OtherVarName) formulas, variables only) —
+// a narrow, distinct service (see its own doc comment for why it isn't folded into LedgerService/
+// ItemMutationService), consumed by both of them plus the preview-only resolve endpoint.
+builder.Services.AddScoped<CompositeVariableResolver>();
+
 builder.Services.AddScoped<ItemMutationService>();
 builder.Services.AddScoped<EnvironmentRenameService>();
 

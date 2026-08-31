@@ -248,6 +248,120 @@ describe('ItemEditorPanelComponent', () => {
     expect(fakeScopesGateway.ListOrgRepos).toHaveBeenCalledWith('acme-corp');
   });
 
+  it(
+    'shows a debounced live-resolve preview for a composite variable value',
+    fakeAsync(() => {
+      fixture.componentRef.setInput('initial', null);
+      fixture.detectChanges();
+      fakeLedgerGateway.ResolveVariable.and.resolveTo({
+        resolvedValue: 'https://example.com/cdn',
+        unresolvedReferences: [],
+        circular: false,
+      });
+
+      GetInput().value = 'CDN';
+      GetInput().dispatchEvent(new Event('input'));
+      GetTextarea().value = '$(BASE_URL)/cdn';
+      GetTextarea().dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      // Not called yet — still inside the debounce window.
+      expect(fakeLedgerGateway.ResolveVariable).not.toHaveBeenCalled();
+
+      tick(400);
+      fixture.detectChanges();
+
+      expect(fakeLedgerGateway.ResolveVariable).toHaveBeenCalledWith(
+        { org: 'acme-corp', repo: 'widgets' },
+        'repository',
+        'CDN',
+        '$(BASE_URL)/cdn',
+      );
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('https://example.com/cdn');
+    }),
+  );
+
+  it(
+    'shows an unresolved-reference note without blocking submit',
+    fakeAsync(() => {
+      fixture.componentRef.setInput('initial', null);
+      fixture.detectChanges();
+      fakeLedgerGateway.ResolveVariable.and.resolveTo({
+        resolvedValue: '$(NOT_YET_CREATED)/cdn',
+        unresolvedReferences: ['NOT_YET_CREATED'],
+        circular: false,
+      });
+      fakeVariablesGateway.CreateVariable.and.resolveTo();
+
+      GetInput().value = 'CDN';
+      GetInput().dispatchEvent(new Event('input'));
+      GetTextarea().value = '$(NOT_YET_CREATED)/cdn';
+      GetTextarea().dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      tick(400);
+      fixture.detectChanges();
+
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain("Doesn’t exist yet in this scope");
+
+      const closedSpy = jasmine.createSpy('closed');
+      fixture.componentInstance.closed.subscribe(closedSpy);
+      Submit();
+      tick();
+      fixture.detectChanges();
+
+      expect(fakeVariablesGateway.CreateVariable).toHaveBeenCalled();
+      expect(closedSpy).toHaveBeenCalled();
+    }),
+  );
+
+  it(
+    'blocks submit and shows an error when the live preview reports a circular reference',
+    fakeAsync(() => {
+      fixture.componentRef.setInput('initial', null);
+      fixture.detectChanges();
+      fakeLedgerGateway.ResolveVariable.and.resolveTo({
+        resolvedValue: undefined,
+        unresolvedReferences: [],
+        circular: true,
+        circularError: 'Circular reference detected: SELF -> SELF',
+      });
+
+      GetInput().value = 'SELF';
+      GetInput().dispatchEvent(new Event('input'));
+      GetTextarea().value = '$(SELF)';
+      GetTextarea().dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      tick(400);
+      fixture.detectChanges();
+
+      Submit();
+      tick();
+      fixture.detectChanges();
+
+      expect(fakeVariablesGateway.CreateVariable).not.toHaveBeenCalled();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Circular reference');
+    }),
+  );
+
+  it('never triggers a resolve preview for a secret, even with a $(...)-shaped value', fakeAsync(() => {
+    fixture.componentRef.setInput('initial', null);
+    fixture.detectChanges();
+
+    const kindSecretButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(
+      (b) => b.textContent?.trim() === 'Secret',
+    )!;
+    kindSecretButton.click();
+    fixture.detectChanges();
+
+    GetTextarea().value = '$(SOMETHING)';
+    GetTextarea().dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    tick(400);
+
+    expect(fakeLedgerGateway.ResolveVariable).not.toHaveBeenCalled();
+  }));
+
   it('emits closed on Escape', () => {
     fixture.componentRef.setInput('initial', null);
     fixture.detectChanges();

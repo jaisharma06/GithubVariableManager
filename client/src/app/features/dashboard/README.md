@@ -35,7 +35,21 @@
   flow (`HandleAdd`/`HandleAddToSection`) never sets these fields. And a new `envToCopy` signal
   (`string | null`) renders `CopyEnvironmentDialogComponent` when set, wired to
   `ScopeSidebarComponent`'s `(copyEnvironment)` output — the same open/close signal pattern
-  `envToRename`/`RenameEnvironmentDialogComponent` already established.
+  `envToRename`/`RenameEnvironmentDialogComponent` already established. Two more later,
+  non-phase-numbered additions, both composite-variable (`$(OtherVarName)`) support: (1)
+  `deleteItemDependents` (a `computed`, `FindDependents` from `core/facades/LedgerSupport.ts` against
+  the current `deleteTarget()`) warns on the existing single-item delete confirm dialog when other
+  composite variables reference the item about to be removed, listing each dependent's name + scope
+  so a delete doesn't silently leave a formula pointing at nothing — the dialog still lets the delete
+  proceed, since an unresolved reference is a deliberately allowed, non-blocking state everywhere in
+  this app (see `docs/Architecture.md`'s composite-variables section); (2) `flattenTarget`/
+  `flattenError` back a new confirm dialog for `LedgerRowComponent`'s "flatten to literal" action
+  (see `features/ledger/README.md`'s `LedgerRow.component.ts`/`.html` entry).
+  `HandleConfirmFlattenItem` overwrites the formula with today's `resolvedValue` by calling the
+  **existing** `ItemMutationsFacade.updateVariable` mutation as-is
+  (create-under-same-name-with-a-new-value) — no new backend call or Gateway method for this feature;
+  `flattenPending` is just that mutation's own `isPending` signal, re-exposed the same way
+  `deletePending`/others already are.
 - **`ScopeSidebar.component.ts`/`.html`** — org/repo header, environment list with per-environment
   rename/delete affordances, "+ New environment" inline form. Injects `EnvironmentsFacade` directly
   (not solely via `output()`) for the create-environment flow — documented in a comment on the

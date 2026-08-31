@@ -1,5 +1,5 @@
 import { InjectionToken } from '@angular/core';
-import type { ItemKind, ScopeRef } from '../Types';
+import type { ItemLevel, ItemKind, ScopeRef } from '../Types';
 import type {
   CopyResult,
   CopyTarget,
@@ -9,6 +9,14 @@ import type {
 } from '../facades/CopySupport';
 import type { LedgerResult } from '../facades/LedgerSupport';
 import type { PutSecretOptions } from './ISecretsGateway';
+
+/** Preview-only result of resolving a composite variable's formula — see `ResolveVariable` below. Never written anywhere; purely for live authoring feedback. */
+export interface ResolveVariableResult {
+  resolvedValue?: string;
+  unresolvedReferences: string[];
+  circular: boolean;
+  circularError?: string;
+}
 
 /**
  * Talks to the `api/` ASP.NET Core backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`).
@@ -46,6 +54,14 @@ export interface ILedgerGateway {
    * (skip-if-exists by name, case-sensitive substring value replace, per-variable failure isolation).
    */
   CopyEnvironmentVariables(source: ScopeRef, dest: ScopeRef): Promise<EnvironmentVariableCopyResult>;
+  /**
+   * Preview-only composite-variable resolution — `POST /api/ledger/variables/resolve`. Never
+   * writes anything; used for live authoring feedback as a `$(OtherVarName)` formula is typed.
+   * `name` is the variable's own name (its current name while editing, or the name being typed for
+   * a new variable) — needed so a direct self-reference is caught by the same circular-reference
+   * check as any longer cycle, matching `api/Services/CompositeVariableResolver.cs`'s design.
+   */
+  ResolveVariable(scope: ScopeRef, level: ItemLevel, name: string, value: string): Promise<ResolveVariableResult>;
 }
 
 export const LEDGER_GATEWAY = new InjectionToken<ILedgerGateway>('LEDGER_GATEWAY');

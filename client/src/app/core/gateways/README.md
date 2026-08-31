@@ -41,7 +41,16 @@ see `docs/Architecture.md`'s "Gateway/Adapter" pattern entry for the full ration
   separate type from `CopyResult` above, since this is a different operation shape (N variables into
   one target, skip-if-exists) than `Copy` (one item into N targets, always-overwrite); see
   `Services/EnvironmentVariableCopyService.cs`'s doc comment / `docs/Architecture.md` for why it's a
-  sibling to `CopyService`, not an extension.
+  sibling to `CopyService`, not an extension. A later, non-phase-numbered addition:
+  `ResolveVariable(scope, level, name, value)` — `POST /api/ledger/variables/resolve`, preview-only,
+  never writes anything (composite-variable support — Azure-App-Config-style `$(OtherVarName)`
+  formulas, variables only). Returns `ResolveVariableResult` (`resolvedValue`/
+  `unresolvedReferences`/`circular`/`circularError`), also declared in this file rather than
+  `core/facades/LedgerSupport.ts`, since it's not part of the merged-read `LedgerResult` shape those
+  other reused types are. `GetLedger`'s own response also carries new `resolvedValue`/
+  `unresolvedReferences` fields per item now (mapped straight through in `ToLedgerItem`, see
+  `core/Types.ts`'s `LedgerItem` for the client-facing shape) — populated server-side by
+  `Services/LedgerService.cs`'s post-fan-out resolution pass, not computed here.
 - `ISecretsGateway.ts` / `BackendSecretsGateway.service.ts` — talks to the `api/` ASP.NET Core
   backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`), not `api.github.com` (Phase 3b).
   Sends a secret's plaintext value directly — sealing (public-key fetch + libsodium sealed-box

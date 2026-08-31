@@ -26,6 +26,25 @@
     component itself, since this badge always renders the same fixed text/tone rather than switching
     on a `kind` the way `KindBadgeComponent` does — so a reader can tell a pre-filled form apart from
     a blank "+ Add" one at a glance.
+  - Another later, non-phase-numbered addition: composite-variable (`$(OtherVarName)`) live
+    authoring feedback, variables only — a secret's value gets no composite UI at all, per the
+    write-only constraint. `ScheduleResolvePreview` debounces
+    (`RESOLVE_PREVIEW_DEBOUNCE_MS` = 400ms) a call to `LedgerFacade.ResolveVariable` (`POST
+    /api/ledger/variables/resolve`, preview-only, never writes) whenever the value looks composite
+    (`IsCompositeValue`, from `core/facades/LedgerSupport.ts`) — cleared immediately, no debounce,
+    the moment it stops being composite, so a stale preview never lingers. Fired from every input
+    that could change what the formula resolves against — value, name (a formula can self-reference
+    the name it's being saved under), level, and environment changes — not just the value textarea.
+    `resolvePreview`/`resolvingPreview` signals back the "Resolving…" / resolved-value-or-circular-
+    error card shown under the value field; a failed preview call clears silently (soft, best-effort
+    convenience — never blocks saving). `HandleSubmit` also does its own client-side fast check
+    against `resolvePreview()?.circular` before submitting, purely for snappier feedback — a submit
+    fired right after typing, before the debounce lands, still falls through to
+    `ItemMutationService`'s own pre-write validation server-side, which is the authoritative
+    backstop and the only thing an *unresolved* (non-circular) forward reference is checked against
+    at all (it's allowed to save, deliberately never blocked — see `docs/Architecture.md`'s
+    composite-variables section). `ngOnDestroy` clears the debounce timer so a pending preview call
+    never fires after the panel closes.
 
   **Built with plain writable signals + manual `(input)`/`(change)` handlers, not Angular Reactive
   Forms.** Every other form-like component in this codebase (`ScopeSidebarComponent`'s
@@ -45,7 +64,12 @@
 Needs `ProvideTestQueryClient()`, fake `VARIABLES_GATEWAY`/`SECRETS_GATEWAY`/`SCOPES_GATEWAY`/
 `OAUTH_GATEWAY`/`LEDGER_GATEWAY` providers, and `SeedFakeSession()`/`ClearFakeSession()` —
 `ScopesFacade.OrgReposQuery` is a real query, and `LEDGER_GATEWAY` (`CreateFakeLedgerGateway()`)
-backs `CopyFacade`'s Phase 6 single `Copy` call for the replicate-to-environments path. Mutation-
+backs `CopyFacade`'s Phase 6 single `Copy` call for the replicate-to-environments path — the same
+fake `LEDGER_GATEWAY` also backs the later composite-variable `ResolveVariable` preview calls, via
+its `CreateFakeLedgerGateway()` spy. Mutation-
 driven assertions (create/update/replicate) use `fakeAsync()` + `tick()`; the
 org-repos-on-selected-visibility assertion is the one real query path in this component and uses
 `WaitFor()` instead. See `core/testing/README.md` for why the two patterns aren't interchangeable.
+The composite-resolve preview's debounce (`RESOLVE_PREVIEW_DEBOUNCE_MS`) also needs `tick(400)` (or
+`fakeAsync`'s `flush()`) before asserting on `resolvePreview()`/`resolvingPreview()` — see
+`ItemEditorPanel.component.spec.ts`.

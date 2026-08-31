@@ -108,6 +108,7 @@
                     (editItem)="editItem.emit(item)"
                     (copyItem)="copyItem.emit(item)"
                     (deleteItem)="deleteItem.emit(item)"
+                    (flattenItem)="flattenItem.emit(item)"
                   />
                 }
                 @for (kind of group.lockedKinds; track kind) {

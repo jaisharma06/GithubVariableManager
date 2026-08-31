@@ -1,5 +1,6 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { DeleteEverywhereFacade } from '../../core/facades/DeleteEverywhereFacade';
+import { FindDependents } from '../../core/facades/LedgerSupport';
 import type { DashboardScope, GithubEnvironment, ItemKind, ItemLevel, LedgerItem, ScopeRef } from '../../core/Types';
 import { ConfirmDialogComponent } from '../../shared/components/ConfirmDialog.component';
 import { CopyItemDialogComponent } from '../ledger/CopyItemDialog.component';
@@ -121,6 +122,21 @@ export class CompareViewComponent {
     return target ? `Delete "${target.name}" from all ${target.targets.length} scopes?` : '';
   });
   protected readonly deletePending = this.deleteEverywhereFacade.isPending;
+  /**
+   * Reverse-dependency warning across every scope this row is being deleted from — deduped by
+   * item id, since a wide delete can otherwise surface the same dependent once per matching scope.
+   * Secrets can never be referenced by a composite formula (see docs/Architecture.md), so this is
+   * a no-op for a secret row.
+   */
+  protected readonly deleteRowDependents = computed<LedgerItem[]>(() => {
+    const target = this.deleteRow();
+    if (!target || target.kind !== 'variable') return [];
+    const dependents = new Map<string, LedgerItem>();
+    for (const t of target.targets) {
+      for (const dep of FindDependents(this.items(), target.name, t.scope)) dependents.set(dep.id, dep);
+    }
+    return [...dependents.values()];
+  });
 
   protected KindFilterLabel(kind: ItemKind | 'all'): string {
     return kind === 'all' ? 'All types' : kind === 'variable' ? 'Variables' : 'Secrets';

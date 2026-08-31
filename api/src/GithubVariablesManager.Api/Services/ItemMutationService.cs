@@ -19,17 +19,57 @@ namespace GithubVariablesManager.Api.Services;
 /// behavior (a pure upsert would silently overwrite a duplicate name instead of correctly
 /// erroring), a real regression, not a simplification.
 /// </summary>
-public sealed class ItemMutationService(ActionsRestClient actionsRestClient, SecretSealingService secretSealingService)
+public sealed class ItemMutationService(
+    ActionsRestClient actionsRestClient,
+    SecretSealingService secretSealingService,
+    CompositeVariableResolver compositeVariableResolver)
 {
-    public Task CreateVariableAsync(string org, string? repo, string? env, string level, string name, string value) =>
-        actionsRestClient.CreateVariableAsync(org, repo, env, level, name, value);
+    /// <summary>
+    /// Strict create — validated for a genuine circular composite reference first (see
+    /// <see cref="ValidateNoCircularReferenceAsync"/>). A forward reference to a not-yet-created
+    /// variable is deliberately *not* validated against here — allowed to save, flagged as
+    /// unresolved by <see cref="LedgerService"/>'s read-time resolution instead (see
+    /// <see cref="CompositeVariableResolver"/>'s doc comment for the full design).
+    /// </summary>
+    public async Task CreateVariableAsync(string org, string? repo, string? env, string level, string name, string value)
+    {
+        await ValidateNoCircularReferenceAsync(org, repo, env, level, name, value);
+        await actionsRestClient.CreateVariableAsync(org, repo, env, level, name, value);
+    }
 
     public Task UpsertVariableAsync(string org, string? repo, string? env, string level, string name, string value) =>
         actionsRestClient.UpsertVariableAsync(org, repo, env, level, name, value);
 
-    /// <summary>Rename+value-update in one call, matching today's single-PATCH behavior.</summary>
-    public Task UpdateVariableAsync(string org, string? repo, string? env, string level, string currentName, string newName, string value) =>
-        actionsRestClient.UpdateVariableAsync(org, repo, env, level, currentName, newName, value);
+    /// <summary>
+    /// Rename+value-update in one call, matching today's single-PATCH behavior. Validated for a
+    /// circular composite reference under the *new* name first, same as
+    /// <see cref="CreateVariableAsync"/>.
+    /// </summary>
+    public async Task UpdateVariableAsync(string org, string? repo, string? env, string level, string currentName, string newName, string value)
+    {
+        await ValidateNoCircularReferenceAsync(org, repo, env, level, newName, value);
+        await actionsRestClient.UpdateVariableAsync(org, repo, env, level, currentName, newName, value);
+    }
+
+    /// <summary>
+    /// Only variable creates/renames go through this — <see cref="UpsertVariableAsync"/> (Copy/
+    /// replicate-to-environments' variable branch) deliberately does not, since copying a composite
+    /// formula into a scope that's merely missing one of its referenced names is an explicitly
+    /// allowed, non-error outcome (the destination just shows the reference as unresolved, same as
+    /// any other broken reference) — see <see cref="CompositeVariableResolver"/>'s doc comment.
+    /// A plain (non-composite) value skips the extra GitHub reads below entirely.
+    /// </summary>
+    private async Task ValidateNoCircularReferenceAsync(string org, string? repo, string? env, string level, string name, string value)
+    {
+        if (!CompositeVariableResolver.IsComposite(value)) return;
+
+        var lookup = await compositeVariableResolver.BuildLookupAsync(org, repo, env, level);
+        var result = compositeVariableResolver.Resolve(name, value, lookup);
+        if (result.Circular)
+        {
+            throw new CompositeCircularReferenceException(result.CircularError ?? "Circular reference detected.");
+        }
+    }
 
     public Task DeleteVariableAsync(string org, string? repo, string? env, string level, string name) =>
         actionsRestClient.DeleteVariableAsync(org, repo, env, level, name);

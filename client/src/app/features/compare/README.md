@@ -19,6 +19,13 @@
   - Row delete removes a name from **every** scope it's currently set in — a different operation
     from `LedgerRowComponent`'s single-scope delete, backed by `DeleteEverywhereFacade`
     (`core/facades/`) rather than `ItemMutationsFacade` directly.
+  - A later, non-phase-numbered addition: `deleteRowDependents` (a `computed`, composite-variable
+    (`$(OtherVarName)`) support) warns on the delete-everywhere confirm dialog when other composite
+    variables reference the row's name — `FindDependents` (`core/facades/LedgerSupport.ts`) is run
+    once per scope the row is being deleted from and the results deduped by item id (a wide delete
+    can otherwise surface the same dependent once per matching scope). A no-op for a secret row,
+    since a composite formula can never reference a secret in the first place (GitHub never returns
+    one's value to substitute in).
 
 ## Wired into `DashboardShellComponent`
 

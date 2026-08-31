@@ -8,8 +8,11 @@ namespace GithubVariablesManager.Api.Tests.Services;
 
 public class ItemMutationServiceTests
 {
-    private static ItemMutationService CreateService(FakeHttpMessageHandler handler) =>
-        new(new ActionsRestClient(new FakeGitHubClientFactory(handler)), new SecretSealingService());
+    private static ItemMutationService CreateService(FakeHttpMessageHandler handler)
+    {
+        var actionsRestClient = new ActionsRestClient(new FakeGitHubClientFactory(handler));
+        return new ItemMutationService(actionsRestClient, new SecretSealingService(), new CompositeVariableResolver(actionsRestClient));
+    }
 
     [Fact]
     public async Task CreateVariableAsync_PostsToTheLevelCollectionPath()
@@ -74,6 +77,74 @@ public class ItemMutationServiceTests
 
         Assert.Equal(HttpMethod.Delete, handler.RequestedMethods[0]);
         Assert.EndsWith("/GONE", handler.RequestedPaths[0]);
+    }
+
+    [Fact]
+    public async Task CreateVariableAsync_DirectSelfReference_ThrowsCircularReferenceException_WithoutCallingGitHub()
+    {
+        // Repository level -> BuildLookupAsync fetches organization then repository variables.
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""");
+        var service = CreateService(handler);
+
+        await Assert.ThrowsAsync<CompositeCircularReferenceException>(() =>
+            service.CreateVariableAsync("octo-org", "widgets", null, "repository", "SELF", "$(SELF)"));
+
+        // Only the two lookup-building GETs happened — the actual create POST never fired.
+        Assert.Equal(2, handler.RequestedPaths.Count);
+        Assert.All(handler.RequestedMethods, m => Assert.Equal(HttpMethod.Get, m));
+    }
+
+    [Fact]
+    public async Task CreateVariableAsync_IndirectCycle_ThrowsCircularReferenceException()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"B","value":"$(NEW_VAR)","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""");
+        var service = CreateService(handler);
+
+        await Assert.ThrowsAsync<CompositeCircularReferenceException>(() =>
+            service.CreateVariableAsync("octo-org", "widgets", null, "repository", "NEW_VAR", "$(B)"));
+    }
+
+    [Fact]
+    public async Task CreateVariableAsync_ForwardReferenceToMissingName_SavesFine_NotBlocked()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // organization lookup
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // repository lookup
+            .Enqueue(HttpStatusCode.Created, "{}");
+        var service = CreateService(handler);
+
+        await service.CreateVariableAsync("octo-org", "widgets", null, "repository", "CDN", "$(NOT_YET_CREATED)/cdn");
+
+        Assert.Equal(HttpMethod.Post, handler.RequestedMethods[2]);
+    }
+
+    [Fact]
+    public async Task CreateVariableAsync_PlainNonCompositeValue_SkipsLookupEntirely()
+    {
+        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.Created, "{}");
+        var service = CreateService(handler);
+
+        await service.CreateVariableAsync("octo-org", "widgets", null, "repository", "PLAIN", "just-a-value");
+
+        // No GET for a lookup — the only request is the create itself.
+        Assert.Single(handler.RequestedPaths);
+        Assert.Equal(HttpMethod.Post, handler.RequestedMethods[0]);
+    }
+
+    [Fact]
+    public async Task UpdateVariableAsync_RenamedIntoASelfReference_ThrowsCircularReferenceException()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // organization lookup
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // repository lookup
+        var service = CreateService(handler);
+
+        await Assert.ThrowsAsync<CompositeCircularReferenceException>(() =>
+            service.UpdateVariableAsync("octo-org", "widgets", null, "repository", "OLD_NAME", "NEW_NAME", "$(NEW_NAME)"));
     }
 
     [Fact]

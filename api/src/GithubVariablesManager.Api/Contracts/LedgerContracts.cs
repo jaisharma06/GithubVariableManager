@@ -14,7 +14,15 @@ public sealed record LedgerItemResponse(
     string? Value,             // present only for variables; always null for secrets (write-only constraint)
     string? Visibility,        // secrets only, org-level ("all" | "private" | "selected") — populated for org-level secrets from GitHub's read response; unaffected by write orchestration
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    // Composite-variable display resolution (Services/CompositeVariableResolver.cs), populated by
+    // LedgerService's post-fan-out pass only when Value matches $(NAME) — null/empty for every
+    // plain (non-composite) item and for every secret. ResolvedValue is null when the formula is
+    // circular (surfaced instead via UnresolvedReferences staying empty and the item's raw Value
+    // itself being the only signal — see LedgerService.ResolveComposites for why a circular ledger
+    // item degrades to "can't resolve" rather than failing the whole read).
+    string? ResolvedValue = null,
+    IReadOnlyList<string>? UnresolvedReferences = null);
 
 public sealed record LedgerPartialErrorResponse(string Label, string Message);
 public sealed record LedgerLockedSectionResponse(string Level, string Kind, string ScopeLabel, string? Env);
@@ -26,6 +34,17 @@ public sealed record LedgerResponse(
 
 public sealed record CreateVariableRequest(string Org, string? Repo, string? Env, string Level, string Name, string Value);
 public sealed record RenameVariableRequest(string Org, string? Repo, string? Env, string Level, string CurrentName, string NewName, string Value);
+
+/// <summary>
+/// Preview-only request for <c>POST /api/ledger/variables/resolve</c> — never writes anything.
+/// <c>Name</c> is the variable's own name (its current name while editing, or the name being typed
+/// for a new variable) — seeded as the resolver's own recursion-stack frame so a direct
+/// self-reference is caught by the same circular-reference check as any longer cycle. Used by
+/// <c>ItemEditorPanelComponent</c> for live authoring feedback as the user types a composite
+/// formula: resolved value, which references don't exist yet, and whether the formula is circular.
+/// </summary>
+public sealed record ResolveVariableRequest(string Org, string? Repo, string? Env, string Level, string Name, string Value);
+public sealed record ResolveVariableResponse(string? ResolvedValue, IReadOnlyList<string> UnresolvedReferences, bool Circular, string? CircularError);
 
 public sealed record PutSecretRequest(string Org, string? Repo, string? Env, string Level, string Name, string Value, string? Visibility, IReadOnlyList<long>? SelectedRepositoryIds);
 public sealed record RenameSecretRequest(string Org, string? Repo, string? Env, string Level, string CurrentName, string NewName, string Value, string? Visibility, IReadOnlyList<long>? SelectedRepositoryIds);

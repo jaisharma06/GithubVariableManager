@@ -22,6 +22,16 @@ export interface LedgerItem {
   visibility?: SecretVisibility;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Composite-variable display resolution (Azure-App-Config-style `$(OtherVarName)` formulas,
+   * variables only — never present on a secret). Populated server-side by every `GET /api/ledger`
+   * read (`api/Services/LedgerService.cs`'s post-fan-out pass) only when `value` matches
+   * `$(NAME)` — undefined for every plain, non-composite value. The GitHub-stored value (`value`
+   * above) is always the raw formula, unchanged; this is purely a read-time convenience.
+   */
+  resolvedValue?: string;
+  /** Reference names inside `value` that don't currently exist anywhere in this item's scope chain — shown as a broken/unresolved indicator, not blocked at save time. */
+  unresolvedReferences?: string[];
 }
 
 export interface GithubEnvironment {

@@ -76,6 +76,7 @@ export function CreateFakeLedgerGateway(): jasmine.SpyObj<ILedgerGateway> {
     'DeleteEverywhere',
     'ExportLedger',
     'CopyEnvironmentVariables',
+    'ResolveVariable',
   ]);
 }
 

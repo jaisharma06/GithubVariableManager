@@ -9,7 +9,7 @@ public class EnvironmentVariableCopyServiceTests
     private static EnvironmentVariableCopyService CreateService(FakeHttpMessageHandler handler)
     {
         var actionsRestClient = new ActionsRestClient(new FakeGitHubClientFactory(handler));
-        return new EnvironmentVariableCopyService(actionsRestClient, new ItemMutationService(actionsRestClient, new SecretSealingService()));
+        return new EnvironmentVariableCopyService(actionsRestClient, new ItemMutationService(actionsRestClient, new SecretSealingService(), new CompositeVariableResolver(actionsRestClient)));
     }
 
     [Fact]

@@ -491,6 +491,83 @@ rather than silently left out of this file's narrative:
   success treatment for the copied bucket, with a neutral `bg-panel-raised` card for the skipped
   bucket (substituting where no `ok-dim` token exists in this app's palette).
 
+- **Composite variables** — Azure-App-Config-style `$(OtherVarName)` formulas inside a GitHub
+  Actions **variable**'s value (never a secret — see "Hard constraint that shapes the UI: secrets
+  are write-only" above). GitHub itself has no concept
+  of this: the stored value **is** the formula, byte-for-byte as typed, and "is composite" is always
+  *derived* by regex-matching `\$\([A-Za-z_][A-Za-z0-9_]*\)` against the value, never persisted as a
+  separate flag anywhere — consistent with this repo's "no server-side database, ever" rule, since
+  there's nothing here that could even be stored if the rule allowed it. All of this logic lives in
+  one narrow, new backend class, `api/Services/CompositeVariableResolver.cs`, kept separate from
+  `LedgerService`/`ItemMutationService` the same way `SecretSealingService` is — a self-contained
+  concern (regex + recursion-stack cycle detection + two different ways of building a name→value
+  lookup) both a read path and a write path need without either owning it.
+
+  Two resolution points, each solving a different problem:
+  1. **Automatic read-time resolution** — every `GET /api/ledger` (and `GET /api/ledger/export`)
+     call re-resolves every composite variable fresh against the other variables already fetched in
+     that same request (`LedgerService.ResolveComposites`, a post-fan-out pass), with **no extra
+     GitHub calls**. `LedgerItemResponse` gains `ResolvedValue`/`UnresolvedReferences` — populated
+     only for a composite variable, always `null` for a plain value and for every secret. There is
+     nothing to keep "live" between reads; a referenced variable changing just changes what the next
+     read resolves to.
+  2. **Explicit opt-in "flatten to literal"** — a write that overwrites the GitHub-stored formula
+     with today's resolved literal, reusing the existing update-variable mutation as-is (no new
+     backend call). This is the *only* way a real Actions workflow run ever sees a working value,
+     since nothing in this app runs during an actual GitHub Actions run — GitHub's own runners have
+     no idea what `$(OtherVarName)` means, so an unflattened composite variable is purely a
+     display/authoring convenience in this app's UI, not something GitHub itself understands.
+
+  **Scope precedence mirrors GitHub Actions' real override chain** — environment > repository >
+  organization — enforced by building the name→value lookup broadest-first and letting a
+  narrower-scope entry of the same name overwrite it (last write wins). No cross-repo/cross-org
+  reference is possible: a lookup is only ever built from the single org/repo an item's own
+  precedence chain belongs to.
+
+  **Circular references are hard-blocked**, everywhere a variable is created or renamed
+  (`ItemMutationService.CreateVariableAsync`/`UpdateVariableAsync` run a pre-write
+  `CompositeVariableResolver.Resolve` check via recursion-stack cycle detection, throwing
+  `CompositeCircularReferenceException` → a genuine `400`, mirroring the existing
+  `EnvironmentRenameValidationException` local-catch precedent). A direct self-reference
+  (`X = $(X)`) is just the degenerate one-frame case of the same check, not a separate special case.
+  `client/`'s `ItemEditorPanelComponent` also fast-checks this client-side (via a debounced,
+  preview-only `POST /api/ledger/variables/resolve` call) purely for snappier feedback — the
+  server-side check on submit is still the authoritative backstop, since a submit can race ahead of
+  the 400ms debounce.
+
+  **Unresolved (forward) references are deliberately allowed, not blocked** — a confirmed product
+  decision: a composite formula can reference a variable that doesn't exist yet (or doesn't exist in
+  reach of the referencing item's scope chain). It saves fine; the read-time resolution pass just
+  reports the missing name(s) in `UnresolvedReferences` and leaves the literal `$(NAME)` token in
+  place inside `ResolvedValue` rather than blanking it, so a broken reference stays visible in place
+  instead of disappearing. `LedgerRowComponent` shows this with a warning icon + the
+  still-otherwise-resolved value. The same "allowed, not blocked" decision applies to **copying** a
+  composite variable to a scope that's missing one of its referenced names — `CopyService`/
+  `ItemMutationService.UpsertVariableAsync` (the replicate/copy write paths) deliberately skip the
+  circular-reference pre-check entirely, unlike the strict create/rename paths above, since the
+  destination just shows the reference as unresolved, the same non-error outcome as any other broken
+  reference.
+
+  **Composites are variables-only in both directions** — a composite formula can never be authored
+  in a secret's value (no composite UI renders for a secret row at all, consistent with "Hard
+  constraint that shapes the UI" above), and a composite formula can never *reference* a secret
+  either (`BuildLookupFromItems`/`BuildLookupAsync` only ever populate variable entries) — GitHub
+  never returns a secret's value in the first place, so there would be nothing to substitute in.
+
+  **No code changes were needed in any bulk-operation Service** — Copy, Delete-everywhere,
+  cross-repo copy, and environment-variable-copy all treat every value as an opaque string already;
+  a composite formula copies/deletes exactly like any other string would, since none of those
+  Services ever needed to understand a value's contents.
+
+  New endpoint: `POST /api/ledger/variables/resolve` (`Endpoints/LedgerEndpoints.cs`) — preview-only,
+  never writes anything, used by `ItemEditorPanelComponent`'s live-authoring feedback as a formula is
+  typed. On `client/`: `core/facades/LedgerSupport.ts` gained `IsCompositeValue`/`ExtractReferences`
+  (kept in sync with the backend regex by hand, deliberately duplicated rather than shared across the
+  stack) and `FindDependents` — a reverse-dependency scan over already-fetched ledger data, honoring
+  the same scope-precedence reachability rule as the backend lookup builders, used to warn "N other
+  variables reference this" on both the single-item delete dialog (`DashboardShellComponent`) and the
+  delete-everywhere dialog (`CompareViewComponent`) before a referenced variable is removed.
+
 ## History
 
 This app was originally built in React and ported to Angular; the original implementation is kept

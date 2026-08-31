@@ -12,7 +12,11 @@ Presentational primitives with no feature-specific knowledge:
   in the delete-everywhere flow) can pass arbitrary markup. Outputs are named
   `confirmed`/`cancelled`, not `confirm`/`cancel` — `@angular-eslint/no-output-native` flags
   `cancel` specifically, since `HTMLDialogElement` and `<input type="file">` both dispatch a real
-  native `cancel` event.
+  native `cancel` event. `confirmLabel` (required) is the button's steady-state text; the optional
+  `confirmingLabel` input (defaults to `'Deleting…'`) is swapped in while `confirming` is true, so a
+  non-delete destructive confirm — e.g. the composite-variable "flatten to literal" dialog in
+  `features/dashboard/` — can show its own pending copy (`"Flattening…"`) instead of every caller
+  being stuck with delete-flavored wording.
 - `Avatar.component.ts` — shows the account's GitHub profile photo; falls back to (and stays on,
   while the image loads or if it fails) the first-letter initial.
 - `RateLimitIndicator.component.ts` — reads `RateLimitService.state` directly (already a signal).

@@ -69,6 +69,17 @@ for why each layer stays single-purpose:
   and substring-replacing the source environment's name with the destination's inside each copied
   value — see `Services/EnvironmentVariableCopyService` below for the full design, including why
   it's a sibling to `EnvironmentRenameService`/`CopyService` rather than an extension of either.
+  Another later, non-phase-numbered addition, composite-variable support (Azure-App-Config-style
+  `$(OtherVarName)` formulas, variables only — see `Services/CompositeVariableResolver` below for the
+  full design): `POST /api/ledger/variables/resolve` is a new, preview-only route on this same group
+  (never writes anything — used by `client/`'s `ItemEditorPanelComponent` for live authoring
+  feedback), and the existing `POST`/`PATCH /api/ledger/variables` handlers gain a local
+  `catch (CompositeCircularReferenceException)` → `400`, the same local-catch-to-4xx shape
+  `EnvironmentRenameValidationException` already established, since a circular formula never touches
+  GitHub in the first place. `GET /api/ledger` itself needed no route change — the new
+  `ResolvedValue`/`UnresolvedReferences` fields ride along inside the existing `LedgerItemResponse`
+  (see `Contracts/` below), populated by a post-fan-out pass inside `LedgerService.GetLedgerAsync`
+  (see `Services/` below).
   `RunnersEndpoints.cs` (the Runners vertical, live as
   of Phase 4) maps `GET /api/runners` — self-hosted runners for the dashboard's runners panel, with
   an optional `repo` query param covering both an org-only scope (omitted) and a repo scope
@@ -103,7 +114,12 @@ for why each layer stays single-purpose:
   `LedgerFacade`/`LedgerSupport.RunLedgerJobs`, now a direct 1:1 server-side port; throws
   `LedgerUnavailableException`, co-located in `LedgerService.cs` itself matching the
   `OAuthRelayException`-in-`DeviceFlowService.cs` precedent, when every fan-out job hits a genuine
-  non-403/404 error) and `EnvironmentsService` (`ListEnvironmentsAsync`, with its own local catch
+  non-403/404 error). A later, non-phase-numbered addition: `LedgerService.GetLedgerAsync`'s result
+  now runs through a private `ResolveComposites` post-fan-out pass (composite-variable support — see
+  `CompositeVariableResolver` below) before it's returned, populating `ResolvedValue`/
+  `UnresolvedReferences` on every composite variable using only the items already fetched in that
+  same request — no extra GitHub calls, and nothing kept "live" between reads, since the whole
+  response is recomputed fresh on every call. `EnvironmentsService` (`ListEnvironmentsAsync`, with its own local catch
   turning a "no environments configured" 404 into an empty list rather than a locked section; gains
   `CreateEnvironmentAsync`/`DeleteEnvironmentAsync` thin pass-throughs in Phase 3c). `ItemMutationService`
   starts with the four variable write methods in Phase 3a and gains three secret write methods in
@@ -113,7 +129,14 @@ for why each layer stays single-purpose:
   `RenameSecretAsync` (put-new-name-then-delete-old, since GitHub has no rename API for secrets;
   reports `RenameSecretResponse.DeleteSucceeded: false` with GitHub's own error message rather than
   ever throwing/5xx-ing when only the delete step fails, since the backend can't make the two steps
-  transactional and a 5xx would wrongly tell the client nothing changed). `SecretSealingService`
+  transactional and a 5xx would wrongly tell the client nothing changed). A later, non-phase-numbered
+  addition: `CreateVariableAsync`/`UpdateVariableAsync` now run a private
+  `ValidateNoCircularReferenceAsync` first (a no-op unless the value is actually composite), which
+  throws `CompositeCircularReferenceException` on a genuine cycle — caught locally in
+  `Endpoints/LedgerEndpoints.cs` and mapped to a `400` before anything touches GitHub. `UpsertVariableAsync`
+  (the Copy/replicate-to-environments write path) deliberately does **not** get this check — copying
+  a composite formula into a scope that's merely missing one of its referenced names is an explicitly
+  allowed, non-error outcome (see `CompositeVariableResolver` below). `SecretSealingService`
   (Phase 3b) is a new, narrow class: libsodium sealed-box encryption against a scope's public key,
   via `Sodium.Core` — kept separate from `ItemMutationService` the same way the old Angular
   `SecretSealingService.ts` was kept separate from `GithubSecretsGateway.service.ts` (crypto
@@ -242,7 +265,36 @@ for why each layer stays single-purpose:
   which is free for noncommercial use only, whereas this project has no such restriction on how it
   or a fork of it may be used — `ClosedXML` stays MIT throughout, matching the license posture of
   every other dependency already in this `.csproj` (`Octokit`, `Sodium.Core`,
-  `Swashbuckle.AspNetCore`), so it was the only real choice, not a coin flip.
+  `Swashbuckle.AspNetCore`), so it was the only real choice, not a coin flip. A later,
+  non-phase-numbered addition: an additive "Resolved Value" column (composite-variable support — see
+  `CompositeVariableResolver` below) sits right after the existing "Value" column, populated only for
+  a composite variable row — the raw "Value" column itself is unchanged for every row, still the
+  literal stored formula, so a downloaded workbook shows both the formula and what it currently
+  resolves to side by side.
+  `CompositeVariableResolver` (a later, non-phase-numbered addition, `AddScoped`) owns every piece of
+  composite-variable logic (Azure-App-Config-style `$(OtherVarName)` formulas inside a GitHub Actions
+  **variable**'s value, never a secret) — kept a distinct, narrow class, not folded into
+  `LedgerService`/`ItemMutationService`, the same rationale `SecretSealingService` is kept separate:
+  a self-contained concern (regex-based `IsComposite`/`ExtractReferences`, recursion-stack cycle
+  detection in `Resolve`, and two different ways of building a name→value lookup) that both a read
+  path and a write path need without either owning it. `IsComposite`/`ExtractReferences` are `static`
+  (pure regex, no GitHub calls) and mirrored by hand in `client/`'s `core/facades/LedgerSupport.ts`
+  (`IsCompositeValue`/`ExtractReferences`) for the exact same reason `CopyResult`/`CopyRequest` are
+  kept as separate DTOs elsewhere in this codebase — a deliberate, explicit duplication rather than a
+  shared package. `Resolve(name, value, lookup)` walks `$(NAME)` references recursively (a nested
+  composite reference resolves too), seeding the recursion stack with the formula's own name so a
+  direct self-reference (`X = $(X)`) is caught by the exact same cycle check as any longer chain, and
+  leaves an unresolved `$(NAME)` token as literal text in the result rather than blanking it — a
+  broken reference stays visible in place, a confirmed product decision (see
+  `docs/Architecture.md`'s composite-variables section). Two lookup builders, matching the two places
+  a resolution needs to happen: `BuildLookupFromItems` (static, reuses an already-fetched in-memory
+  `LedgerItemResponse` list — `LedgerService`'s read-time pass) and `BuildLookupAsync` (fresh, scoped
+  `ActionsRestClient` calls at only the levels relevant to one item's own precedence chain — the
+  resolve-preview endpoint and `ItemMutationService`'s pre-write validation, neither of which has a
+  full ledger read handy). Both enforce GitHub Actions' real override precedence — environment >
+  repository > organization — the same way: adding levels broadest-first and letting a narrower-scope
+  entry of the same name overwrite it. Neither builder ever looks outside the single org/repo passed
+  in, so no cross-repo/cross-org reference is possible.
 - `GitHub/` — Octokit-based outbound client wrapper(s). `GitHubClientFactory` builds an
   Octokit `IGitHubClient` credentialed with the current request's bearer token — the shared entry
   point every migration vertical's GitHub-calling code goes through. Its construction logic now
@@ -326,6 +378,14 @@ for why each layer stays single-purpose:
   shapes for `POST /api/ledger/environments/copy-variables`, deliberately their own shape rather
   than reusing `CopyRequest`/`CopyResponse` (see `Services/EnvironmentVariableCopyService` above for
   why the two operations aren't the same shape).
+  Another later, non-phase-numbered addition to `LedgerContracts.cs`: composite-variable support
+  (see `Services/CompositeVariableResolver` above). `LedgerItemResponse` gains `ResolvedValue`/
+  `UnresolvedReferences`, both optional and populated only for a composite variable — every plain
+  value and every secret leaves them `null`. `ResolveVariableRequest`/`ResolveVariableResponse` are
+  the wire shapes for the new preview-only `POST /api/ledger/variables/resolve` route —
+  `ResolveVariableResponse` (`ResolvedValue`/`UnresolvedReferences`/`Circular`/`CircularError`) is
+  deliberately its own shape rather than reusing `LedgerItemResponse`, since a preview has no item
+  identity (name/level/scope) of its own to carry.
 
 ## Stateless by design
 

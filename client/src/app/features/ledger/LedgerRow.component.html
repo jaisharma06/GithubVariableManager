@@ -26,6 +26,41 @@
       </span>
     } @else if (masked()) {
       <span class="tracking-widest text-text-dim">••••••••••••</span>
+    } @else if (isComposite()) {
+      <!-- flex + min-w-0 (not inline-flex) so the resolved-value text truncates on its own inside this flex row instead of the whole row being hard-clipped by the parent cell's `truncate` — same nesting idiom WorkflowRunsList uses for its run-title cell. -->
+      <span class="flex min-w-0 items-center gap-1.5">
+        <!-- Same badge recipe as KindBadgeComponent/the "FROM CLIPBOARD" badge (inline-flex/rounded/px-1.5 py-0.5/font-mono text-[10px]) — reused rather than the component itself since this fires on a fixed condition (isComposite), not a switched `kind`. Distinct brand/teal tone (vs. the amber "VAR" badge and the variable-accent "FROM CLIPBOARD" badge) so it never reads as another kind/provenance badge — it's marking "this value is computed", a different axis entirely. -->
+        <span
+          class="inline-flex shrink-0 items-center rounded bg-brand-dim px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-brand"
+          [title]="'Formula: ' + item().value"
+        >
+          ƒ(x)
+        </span>
+        @if (hasUnresolvedReferences()) {
+          <span
+            class="flex min-w-0 items-center gap-1 text-danger"
+            [title]="'Formula: ' + item().value + ' — missing: ' + item().unresolvedReferences!.join(', ')"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              class="shrink-0"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v5M12 16h.01" />
+            </svg>
+            <span class="truncate">{{ item().resolvedValue }}</span>
+            <span class="sr-only">— broken reference, missing: {{ item().unresolvedReferences!.join(', ') }}</span>
+          </span>
+        } @else {
+          <span class="min-w-0 truncate text-text" [title]="'Formula: ' + item().value">{{ item().resolvedValue }}</span>
+        }
+      </span>
     } @else {
       <span class="text-text">{{ item().value }}</span>
     }
@@ -61,6 +96,21 @@
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <rect x="8" y="2" width="8" height="4" rx="1" />
           <path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3" />
+        </svg>
+      </button>
+    }
+    @if (canFlatten()) {
+      <!-- Destructive to the formula (overwrites it with today's resolved literal) — confirmed via ConfirmDialogComponent one layer up, not fired directly from here. -->
+      <button
+        type="button"
+        (click)="flattenItem.emit()"
+        title="Flatten to today's resolved value&hellip;"
+        aria-label="Flatten to today's resolved value"
+        class="rounded p-1 text-text-dim hover:text-danger"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M4 4v6h6M20 20v-6h-6" />
+          <path d="M4 10a8 8 0 0 1 14.5-4.5M20 14a8 8 0 0 1-14.5 4.5" />
         </svg>
       </button>
     }

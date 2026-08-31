@@ -12,7 +12,7 @@ public class LedgerServiceTests
         var actionsRestClient = new ActionsRestClient(factory);
         var environmentsService = new EnvironmentsService(actionsRestClient);
         var scopesService = new ScopesService(factory);
-        return new LedgerService(actionsRestClient, environmentsService, scopesService);
+        return new LedgerService(actionsRestClient, environmentsService, scopesService, new CompositeVariableResolver(actionsRestClient));
     }
 
     [Fact]
@@ -136,6 +136,52 @@ public class LedgerServiceTests
         var service = CreateService(handler);
 
         await Assert.ThrowsAsync<LedgerUnavailableException>(() => service.GetLedgerAsync("octo-org", null));
+    }
+
+    [Fact]
+    public async Task GetLedgerAsync_CompositeVariable_GetsResolvedValueFromTheSameReadsFetch()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":2,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"CDN","value":"$(BASE_URL)/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var ledger = await service.GetLedgerAsync("octo-org", null);
+
+        var cdn = Assert.Single(ledger.Items, i => i.Name == "CDN");
+        Assert.Equal("https://example.com/cdn", cdn.ResolvedValue);
+        Assert.Empty(cdn.UnresolvedReferences!);
+        // No extra GitHub calls made for resolution — only the 2 read requests already fetched.
+        Assert.Equal(2, handler.RequestedPaths.Count);
+    }
+
+    [Fact]
+    public async Task GetLedgerAsync_CompositeVariableWithMissingReference_FlagsItUnresolved_DoesNotFailTheRead()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"CDN","value":"$(NOT_YET_CREATED)/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var ledger = await service.GetLedgerAsync("octo-org", null);
+
+        var cdn = Assert.Single(ledger.Items, i => i.Name == "CDN");
+        Assert.Equal(["NOT_YET_CREATED"], cdn.UnresolvedReferences);
+        Assert.Equal("$(NOT_YET_CREATED)/cdn", cdn.ResolvedValue);
+    }
+
+    [Fact]
+    public async Task GetLedgerAsync_PlainVariable_HasNoResolvedValue()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"PLAIN","value":"just-a-value","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var ledger = await service.GetLedgerAsync("octo-org", null);
+
+        var plain = Assert.Single(ledger.Items);
+        Assert.Null(plain.ResolvedValue);
     }
 
     [Fact]

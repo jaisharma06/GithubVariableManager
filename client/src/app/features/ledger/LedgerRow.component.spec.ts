@@ -95,4 +95,55 @@ describe('LedgerRowComponent', () => {
 
     expect(fixture.nativeElement.querySelector('[title="Copy value to clipboard"]')).toBeNull();
   });
+
+  const COMPOSITE_VARIABLE: LedgerItem = {
+    ...VARIABLE,
+    name: 'CDN',
+    value: '$(BASE_URL)/cdn',
+    resolvedValue: 'https://example.com/cdn',
+    unresolvedReferences: [],
+  };
+
+  it('shows the resolved value and a composite badge for a composite variable, with the raw formula in a tooltip', async () => {
+    fixture = await CreateFixture(COMPOSITE_VARIABLE);
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    expect(text).toContain('https://example.com/cdn');
+    expect(text).toContain('ƒ(x)');
+    const formulaEl = (fixture.nativeElement as HTMLElement).querySelector('[title^="Formula: "]') as HTMLElement;
+    expect(formulaEl.title).toContain('$(BASE_URL)/cdn');
+  });
+
+  it('shows broken-reference styling when a composite variable has unresolved references', async () => {
+    fixture = await CreateFixture({ ...COMPOSITE_VARIABLE, unresolvedReferences: ['BASE_URL'] });
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    expect(text).toContain('https://example.com/cdn'); // still shown, broken reference stays visible in place
+    const brokenEl = (fixture.nativeElement as HTMLElement).querySelector('.text-danger');
+    expect(brokenEl).toBeTruthy();
+  });
+
+  it('offers a "flatten to today\'s resolved value" action for a composite variable, and emits flattenItem when clicked', async () => {
+    fixture = await CreateFixture(COMPOSITE_VARIABLE);
+    const flattenSpy = jasmine.createSpy('flattenItem');
+    fixture.componentInstance.flattenItem.subscribe(flattenSpy);
+
+    const flattenButton = fixture.nativeElement.querySelector('[title^="Flatten to today\'s resolved value"]') as HTMLButtonElement;
+    expect(flattenButton).toBeTruthy();
+    flattenButton.click();
+
+    expect(flattenSpy).toHaveBeenCalled();
+  });
+
+  it('never offers the flatten action for a plain (non-composite) variable', async () => {
+    fixture = await CreateFixture(VARIABLE);
+
+    expect(fixture.nativeElement.querySelector('[title^="Flatten to today\'s resolved value"]')).toBeNull();
+  });
+
+  it('never offers the flatten action for a secret row', async () => {
+    fixture = await CreateFixture(SECRET);
+
+    expect(fixture.nativeElement.querySelector('[title^="Flatten to today\'s resolved value"]')).toBeNull();
+  });
 });

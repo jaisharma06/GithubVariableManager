@@ -7,6 +7,7 @@ import { VariableClipboardService } from '../../core/services/VariableClipboardS
 import { EnvironmentsFacade } from '../../core/facades/EnvironmentsFacade';
 import { ItemMutationsFacade } from '../../core/facades/ItemMutationsFacade';
 import { LedgerFacade } from '../../core/facades/LedgerFacade';
+import { FindDependents } from '../../core/facades/LedgerSupport';
 import { ScopesFacade } from '../../core/facades/ScopesFacade';
 import type { ItemLevel, LedgerItem } from '../../core/Types';
 import type { DashboardScope } from '../../core/Types';
@@ -114,6 +115,9 @@ export class DashboardShellComponent {
   protected readonly deleteError = signal<string | null>(null);
   protected readonly exporting = signal(false);
   protected readonly exportError = signal<string | null>(null);
+  /** "Flatten to literal" (composite-variable support) — see ItemMutationsFacade.updateVariable, reused as-is; this feature adds no new backend call. */
+  protected readonly flattenTarget = signal<LedgerItem | null>(null);
+  protected readonly flattenError = signal<string | null>(null);
 
   // environmentsFacade/itemMutationsFacade themselves stay private (DI dependencies aren't part
   // of this component's template-facing API) — just their pending signals are re-exposed for the
@@ -126,6 +130,16 @@ export class DashboardShellComponent {
   protected readonly deleteItemTitle = computed(() => {
     const target = this.deleteTarget();
     return target ? `Delete ${target.kind === 'variable' ? 'variable' : 'secret'} "${target.name}"?` : '';
+  });
+  /** Reverse-dependency warning — other composite variables (in scope-chain reach) that reference the item about to be deleted, so deleting it doesn't silently break them. */
+  protected readonly deleteItemDependents = computed(() => {
+    const target = this.deleteTarget();
+    return target ? FindDependents(this.ledgerItems(), target.name, target.scope) : [];
+  });
+  protected readonly flattenPending = this.itemMutationsFacade.updateVariable.isPending;
+  protected readonly flattenTitle = computed(() => {
+    const target = this.flattenTarget();
+    return target ? `Flatten "${target.name}" to its resolved value?` : '';
   });
 
   constructor() {
@@ -204,6 +218,44 @@ export class DashboardShellComponent {
   protected HandleCancelDeleteItem(): void {
     this.deleteTarget.set(null);
     this.deleteError.set(null);
+  }
+
+  protected DependentScopeLabel(item: LedgerItem): string {
+    return item.level === 'environment' ? `environment: ${item.scope.env}` : item.level;
+  }
+
+  protected HandleFlattenItem(item: LedgerItem): void {
+    this.flattenError.set(null);
+    this.flattenTarget.set(item);
+  }
+
+  /**
+   * Overwrites the stored formula with today's resolved literal value — reuses the existing
+   * update-variable mutation as-is (create-under-same-name-with-a-new-value), no new backend call.
+   * Destructive to the formula, which is why this sits behind ConfirmDialogComponent rather than
+   * firing straight from LedgerRowComponent's icon click.
+   */
+  protected async HandleConfirmFlattenItem(): Promise<void> {
+    const target = this.flattenTarget();
+    if (!target?.resolvedValue) return;
+    this.flattenError.set(null);
+    try {
+      await this.itemMutationsFacade.updateVariable.mutateAsync({
+        scope: target.scope,
+        level: target.level,
+        currentName: target.name,
+        newName: target.name,
+        value: target.resolvedValue,
+      });
+      this.flattenTarget.set(null);
+    } catch (err) {
+      this.flattenError.set(err instanceof Error ? err.message : 'GitHub rejected this request.');
+    }
+  }
+
+  protected HandleCancelFlattenItem(): void {
+    this.flattenTarget.set(null);
+    this.flattenError.set(null);
   }
 
   protected HandleDisconnect(): void {

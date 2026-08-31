@@ -41,6 +41,17 @@ namespace GithubVariablesManager.Api.Endpoints;
 /// <see cref="Services.EnvironmentRenameService"/>, not an extension of it or of
 /// <c>POST /api/ledger/copy</c> — see <see cref="Services.EnvironmentVariableCopyService"/>'s doc
 /// comment for why.
+///
+/// <c>POST /api/ledger/variables/resolve</c> is another later, non-phase-numbered addition —
+/// composite-variable support (Azure-App-Config-style <c>$(OtherVarName)</c> formulas, variables
+/// only, never secrets). This route is preview-only (never writes), used by the authoring UI for
+/// live feedback as a formula is typed. <c>POST</c>/<c>PATCH /api/ledger/variables</c> gain
+/// pre-write circular-reference validation (a genuine 400, caught locally the same way
+/// <see cref="EnvironmentRenameValidationException"/> is above) — an *unresolved* (non-circular)
+/// forward reference is deliberately allowed to save. Read-time resolution itself
+/// (<c>GET /api/ledger</c>'s <c>ResolvedValue</c>/<c>UnresolvedReferences</c> fields) happens inside
+/// <see cref="Services.LedgerService.GetLedgerAsync"/>, not here — see
+/// <see cref="Services.CompositeVariableResolver"/>'s doc comment for the full design.
 /// </summary>
 public static class LedgerEndpoints
 {
@@ -127,8 +138,18 @@ public static class LedgerEndpoints
                 return Results.Json(new ErrorResponse("Invalid level."), statusCode: 400);
             }
 
-            await itemMutationService.CreateVariableAsync(request.Org, request.Repo, request.Env, request.Level, request.Name, request.Value);
-            return Results.Ok();
+            try
+            {
+                await itemMutationService.CreateVariableAsync(request.Org, request.Repo, request.Env, request.Level, request.Name, request.Value);
+                return Results.Ok();
+            }
+            catch (CompositeCircularReferenceException ex)
+            {
+                // Not an Octokit.ApiException (nothing touched GitHub) — caught locally rather than
+                // going through the global PermissionErrorExceptionHandler, same reasoning as
+                // LedgerUnavailableException/EnvironmentRenameValidationException above.
+                return Results.Json(new ErrorResponse(ex.Message), statusCode: 400);
+            }
         })
             .WithName("CreateVariable")
             .WithTags("Ledger")
@@ -148,13 +169,42 @@ public static class LedgerEndpoints
                 return Results.Json(new ErrorResponse("Invalid level."), statusCode: 400);
             }
 
-            await itemMutationService.UpdateVariableAsync(request.Org, request.Repo, request.Env, request.Level, request.CurrentName, request.NewName, request.Value);
-            return Results.Ok();
+            try
+            {
+                await itemMutationService.UpdateVariableAsync(request.Org, request.Repo, request.Env, request.Level, request.CurrentName, request.NewName, request.Value);
+                return Results.Ok();
+            }
+            catch (CompositeCircularReferenceException ex)
+            {
+                return Results.Json(new ErrorResponse(ex.Message), statusCode: 400);
+            }
         })
             .WithName("RenameVariable")
             .WithTags("Ledger")
             .WithSummary("Rename and/or update an existing Actions variable.")
             .Produces(200)
+            .Produces<ErrorResponse>(400)
+            .Produces<ErrorResponse>(401);
+
+        group.MapPost("/variables/resolve", async (ResolveVariableRequest request, IBearerTokenAccessor tokenAccessor, CompositeVariableResolver compositeVariableResolver) =>
+        {
+            if (tokenAccessor.GetToken() is null)
+            {
+                return Results.Json(new ErrorResponse("Missing bearer token."), statusCode: 401);
+            }
+            if (!ValidLevels.Contains(request.Level))
+            {
+                return Results.Json(new ErrorResponse("Invalid level."), statusCode: 400);
+            }
+
+            var lookup = await compositeVariableResolver.BuildLookupAsync(request.Org, request.Repo, request.Env, request.Level);
+            var result = compositeVariableResolver.Resolve(request.Name, request.Value, lookup);
+            return Results.Ok(new ResolveVariableResponse(result.ResolvedValue, result.UnresolvedReferences, result.Circular, result.CircularError));
+        })
+            .WithName("ResolveVariable")
+            .WithTags("Ledger")
+            .WithSummary("Preview-only: resolve a composite variable's formula against other variables visible in its scope chain (environment > repository > organization), without writing anything. Used for live authoring feedback.")
+            .Produces<ResolveVariableResponse>(200)
             .Produces<ErrorResponse>(400)
             .Produces<ErrorResponse>(401);
 

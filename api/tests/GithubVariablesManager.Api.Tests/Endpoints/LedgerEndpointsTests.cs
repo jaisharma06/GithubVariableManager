@@ -235,6 +235,98 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task PostVariable_CircularReference_Returns400_NeverCallsGitHub()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // organization lookup
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // repository lookup
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables",
+            new CreateVariableRequest("octo-org", "widgets", null, "repository", "SELF", "$(SELF)"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Circular reference", body);
+        // Only the two lookup-building GETs happened — no create POST.
+        Assert.Equal(2, handler.RequestedPaths.Count);
+    }
+
+    [Fact]
+    public async Task PatchVariable_RenamedIntoCircularReference_Returns400()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // organization lookup
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // repository lookup
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PatchAsJsonAsync("/api/ledger/variables",
+            new RenameVariableRequest("octo-org", "widgets", null, "repository", "OLD_NAME", "NEW_NAME", "$(NEW_NAME)"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResolveVariable_ValidComposite_ReturnsResolvedValue_WritesNothing()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/resolve",
+            new ResolveVariableRequest("octo-org", "widgets", null, "repository", "CDN", "$(BASE_URL)/cdn"));
+
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<ResolveVariableResponse>();
+        Assert.Equal("https://example.com/cdn", result!.ResolvedValue);
+        Assert.Empty(result.UnresolvedReferences);
+        Assert.False(result.Circular);
+        // Only GET requests (the lookup) — no write ever issued by a preview.
+        Assert.All(handler.RequestedMethods, m => Assert.Equal(HttpMethod.Get, m));
+    }
+
+    [Fact]
+    public async Task ResolveVariable_UnresolvedReference_ReportsItWithoutError()
+    {
+        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/resolve",
+            new ResolveVariableRequest("octo-org", "widgets", null, "repository", "CDN", "$(NOT_YET_CREATED)/cdn"));
+
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<ResolveVariableResponse>();
+        Assert.Equal(["NOT_YET_CREATED"], result!.UnresolvedReferences);
+        Assert.False(result.Circular);
+    }
+
+    [Fact]
+    public async Task ResolveVariable_CircularFormula_ReportsCircularWithoutError()
+    {
+        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/resolve",
+            new ResolveVariableRequest("octo-org", "widgets", null, "repository", "SELF", "$(SELF)"));
+
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<ResolveVariableResponse>();
+        Assert.True(result!.Circular);
+        Assert.NotNull(result.CircularError);
+    }
+
+    [Fact]
+    public async Task ResolveVariable_MissingBearerToken_Returns401()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/resolve",
+            new ResolveVariableRequest("octo-org", "widgets", null, "repository", "CDN", "$(BASE_URL)/cdn"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     private static string GenerateBase64PublicKey() => Convert.ToBase64String(PublicKeyBox.GenerateKeyPair().PublicKey);
 
     [Fact]

@@ -1,8 +1,8 @@
 import { Injectable, inject } from '@angular/core';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import { AuthService } from '../services/AuthService';
-import { LEDGER_GATEWAY, type ILedgerGateway } from '../gateways/ILedgerGateway';
-import type { DashboardScope } from '../Types';
+import { LEDGER_GATEWAY, type ILedgerGateway, type ResolveVariableResult } from '../gateways/ILedgerGateway';
+import type { DashboardScope, ItemLevel, ScopeRef } from '../Types';
 
 /**
  * Facade over `ILedgerGateway`'s merged read. The variables/secrets/environment fan-out and
@@ -31,5 +31,14 @@ export class LedgerFacade {
    */
   async ExportLedger(org: string, repo?: string): Promise<{ blob: Blob; filename: string }> {
     return this.ledgerGateway.ExportLedger(org, repo);
+  }
+
+  /**
+   * Preview-only composite-variable resolution, same one-shot imperative shape as `ExportLedger`
+   * above — no cache-worthy state, the caller (`ItemEditorPanelComponent`'s live-resolve preview)
+   * owns its own pending/result signals.
+   */
+  async ResolveVariable(scope: ScopeRef, level: ItemLevel, name: string, value: string): Promise<ResolveVariableResult> {
+    return this.ledgerGateway.ResolveVariable(scope, level, name, value);
   }
 }

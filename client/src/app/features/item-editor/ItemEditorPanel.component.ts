@@ -1,11 +1,16 @@
-import { AfterViewInit, Component, ElementRef, HostListener, OnInit, ViewChild, computed, inject, input, output, signal } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, input, output, signal } from '@angular/core';
 import { CopyFacade } from '../../core/facades/CopyFacade';
 import { ItemMutationsFacade } from '../../core/facades/ItemMutationsFacade';
-import { SameScope } from '../../core/facades/LedgerSupport';
+import { LedgerFacade } from '../../core/facades/LedgerFacade';
+import { IsCompositeValue, SameScope } from '../../core/facades/LedgerSupport';
 import { ScopesFacade } from '../../core/facades/ScopesFacade';
+import type { ResolveVariableResult } from '../../core/gateways/ILedgerGateway';
 import type { PutSecretOptions } from '../../core/gateways/ISecretsGateway';
 import type { DashboardScope, GithubEnvironment, ItemKind, ItemLevel, LedgerItem, ScopeRef, SecretVisibility } from '../../core/Types';
 import { ButtonComponent } from '../../shared/components/Button.component';
+
+/** Debounce window for the live composite-resolve preview — long enough to not fire on every keystroke, short enough to still feel live. */
+const RESOLVE_PREVIEW_DEBOUNCE_MS = 400;
 
 const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -36,7 +41,7 @@ interface ReplicateFailure {
   imports: [ButtonComponent],
   templateUrl: './ItemEditorPanel.component.html',
 })
-export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
+export class ItemEditorPanelComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly scope = input.required<DashboardScope>();
   readonly environments = input<GithubEnvironment[]>([]);
   /** The full ledger — used to decide create-vs-update when replicating to other environments. */
@@ -59,6 +64,7 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
   private readonly itemMutationsFacade = inject(ItemMutationsFacade);
   private readonly copyFacade = inject(CopyFacade);
   private readonly scopesFacade = inject(ScopesFacade);
+  private readonly ledgerFacade = inject(LedgerFacade);
 
   @ViewChild('nameInput') private readonly nameInput?: ElementRef<HTMLInputElement>;
   @ViewChild('valueInput') private readonly valueInput?: ElementRef<HTMLTextAreaElement>;
@@ -81,6 +87,18 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
    * kind of partial-failure outcome.
    */
   protected readonly renameDeleteWarning = signal<string | null>(null);
+
+  /**
+   * Composite-variable ($(OtherVarName)) live authoring feedback — debounced preview against
+   * `api/`'s preview-only `POST /api/ledger/variables/resolve` endpoint (`LedgerFacade.ResolveVariable`),
+   * variables only (never triggered for a secret — a secret's value gets no composite UI at all,
+   * per docs/Architecture.md's write-only constraint). `null` means "no preview to show" (value
+   * isn't composite, or nothing has resolved yet); `resolving` distinguishes "waiting on the
+   * debounce/network round-trip" from "resolved and there's nothing composite here".
+   */
+  protected readonly resolvePreview = signal<ResolveVariableResult | null>(null);
+  protected readonly resolvingPreview = signal(false);
+  private resolveDebounceHandle: ReturnType<typeof setTimeout> | undefined;
 
   protected readonly isEdit = computed(() => this.initial() !== null);
   /** True only for a fresh create opened via SectionHeaderComponent's "Paste" action — drives the "from clipboard" provenance note, mirroring how isEdit()/lockTarget() already distinguish this form's other open-modes. */
@@ -130,6 +148,10 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
       this.itemMutationsFacade.renameSecret.isPending() ||
       this.copyFacade.isPending(),
   );
+  /** Disables the submit button once the live preview has already caught a circular formula — HandleSubmit's own check is the real guard; this is just matching UI affordance. */
+  protected readonly submitBlocked = computed(
+    () => this.submitting() || (this.kind() === 'variable' && this.resolvePreview()?.circular === true),
+  );
 
   ngOnInit(): void {
     const initial = this.initial();
@@ -139,11 +161,16 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
     this.name.set(initial?.name ?? this.initialName() ?? '');
     this.value.set(initial?.kind === 'variable' ? (initial.value ?? '') : (this.initialValue() ?? ''));
     this.visibility.set(initial?.visibility ?? 'all');
+    this.ScheduleResolvePreview();
   }
 
   ngAfterViewInit(): void {
     if (!this.isEdit() && !this.lockTarget()) this.nameInput?.nativeElement.focus();
     else if (this.isEdit()) this.valueInput?.nativeElement.focus();
+  }
+
+  ngOnDestroy(): void {
+    if (this.resolveDebounceHandle !== undefined) clearTimeout(this.resolveDebounceHandle);
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -153,22 +180,36 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
 
   protected HandleLevelChange(event: Event): void {
     this.level.set((event.target as HTMLSelectElement).value as ItemLevel);
+    this.ScheduleResolvePreview();
   }
 
   protected HandleEnvNameChange(event: Event): void {
     this.envName.set((event.target as HTMLSelectElement).value);
+    this.ScheduleResolvePreview();
   }
 
   protected HandleNameInput(event: Event): void {
     this.name.set((event.target as HTMLInputElement).value.toUpperCase());
+    this.ScheduleResolvePreview();
   }
 
   protected HandleValueInput(event: Event): void {
     this.value.set((event.target as HTMLTextAreaElement).value);
+    this.ScheduleResolvePreview();
+  }
+
+  protected HandleKindChange(kind: ItemKind): void {
+    this.kind.set(kind);
+    this.ScheduleResolvePreview();
   }
 
   protected HandleVisibilityChange(event: Event): void {
     this.visibility.set((event.target as HTMLSelectElement).value as SecretVisibility);
+  }
+
+  /** Circular formulas get the same danger-tinted card chrome as `replicateFailures`/`renameDeleteWarning` below — a blocking error shouldn't share the neutral "here's your resolved value" card look. */
+  protected PreviewCardClass(circular: boolean): string {
+    return circular ? 'border-danger/30 bg-danger-dim' : 'border-line bg-panel-raised';
   }
 
   protected KindOptionClasses(tone: ItemKind): string {
@@ -193,6 +234,54 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
       else next.add(key);
       return next;
     });
+  }
+
+  /**
+   * Debounced live-resolve preview — variables only, and only once the value actually looks like a
+   * composite formula (`$(NAME)`), so a plain value never fires a network round-trip on every
+   * keystroke. Cleared immediately (no debounce) the moment the value stops being composite, so a
+   * stale preview never lingers once the user deletes the last `$(...)` reference.
+   */
+  private ScheduleResolvePreview(): void {
+    if (this.resolveDebounceHandle !== undefined) clearTimeout(this.resolveDebounceHandle);
+
+    if (this.kind() !== 'variable' || !IsCompositeValue(this.value())) {
+      this.resolvePreview.set(null);
+      this.resolvingPreview.set(false);
+      return;
+    }
+
+    this.resolvingPreview.set(true);
+    this.resolveDebounceHandle = setTimeout(() => void this.RunResolvePreview(), RESOLVE_PREVIEW_DEBOUNCE_MS);
+  }
+
+  private async RunResolvePreview(): Promise<void> {
+    const level = this.level();
+    if (level === 'environment' && !this.envName()) {
+      this.resolvingPreview.set(false);
+      return;
+    }
+
+    const value = this.value();
+    const scope = this.targetScope();
+    // The name being typed/renamed-to — not the pre-rename initial().name — so a formula that
+    // references the new name it's being saved under is caught as a self-reference, matching
+    // ItemMutationService's own pre-write validation (which validates against newName, not
+    // currentName).
+    const name = this.name();
+
+    try {
+      const result = await this.ledgerFacade.ResolveVariable(scope, level, name, value);
+      // Guard against a stale response landing after the value moved on further (debounce doesn't
+      // fully prevent overlap once a request is already in flight).
+      if (this.value() === value) this.resolvePreview.set(result);
+    } catch {
+      // Preview is a soft, best-effort convenience — a failed preview call clears silently rather
+      // than surfacing an error; it never blocks saving (the server-side check on submit still is).
+      if (this.value() === value) this.resolvePreview.set(null);
+    } finally {
+      if (this.value() === value) this.resolvingPreview.set(false);
+    }
   }
 
   protected async HandleSubmit(event: Event): Promise<void> {
@@ -224,6 +313,14 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit {
           ? 'Enter a value — GitHub can’t copy a secret’s value when renaming it, so you’ll need to re-enter it under the new name.'
           : 'Enter a value for this secret.',
       );
+      return;
+    }
+    // Client-side fast feedback for a genuine circular composite reference — the fresh
+    // preview may not have resolved yet (a submit right after typing, before the debounce fired),
+    // in which case ItemMutationService's own pre-write validation is the authoritative backstop
+    // and rejects with a 400. An *unresolved* (non-circular) forward reference is never blocked.
+    if (kind === 'variable' && this.resolvePreview()?.circular) {
+      this.error.set(this.resolvePreview()!.circularError ?? 'This formula creates a circular reference.');
       return;
     }
 
