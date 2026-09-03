@@ -62,6 +62,33 @@
     different situation from a plain save failure: the variable itself is safely saved with a
     working, correct literal value on GitHub — only the app's record of "this was a formula" failed
     to update, recoverable by simply re-saving the same formula again.
+  - A later, non-phase-numbered addition on top of the composite-variable feature: variable-name
+    autocomplete while authoring a `$(...)` formula, variables only (a secret's value textarea has
+    no composite UI at all, so no autocomplete either). Two pure helpers in
+    `core/facades/LedgerSupport.ts` drive it: `DetectComposeTrigger(value, caretIndex)` scans
+    backward from the caret for an unclosed `$(` and returns the partial name typed so far (or
+    `null` if the caret isn't inside one), and `FindComposableCandidates(items, targetScope,
+    excludeId?)` filters the already-bound `items()` input down to every other variable visible in
+    `targetScope`'s own precedence chain (secrets excluded — a composite can never reference one;
+    the item currently being edited excluded via `excludeId`, so it never trivially suggests
+    referencing itself). `UpdateComposeSuggestions` re-runs both on `(input)`/`(click)`/`(keyup)` of
+    the value textarea — all three can move the caret in or out of an open reference, not just
+    typing — and case-insensitively prefix-filters the candidates against the partial name into the
+    `composeSuggestions` signal; zero eligible candidates or zero prefix matches means the dropdown
+    simply doesn't render (this app's established "hide when not applicable" convention, same as
+    `resolvePreview` above), no disabled/empty-state row. `composeActiveIndex` tracks which
+    suggestion is keyboard-highlighted. `HandleValueKeydown` (bound on the value textarea itself,
+    distinct from `HandleKeydown`'s document-level Escape-closes-the-panel listener) handles
+    ArrowUp/ArrowDown to move the highlight, Enter/Tab to select the highlighted suggestion, and
+    Escape to dismiss just the popup (`stopPropagation` keeps it from also reaching the
+    document-level listener and closing the whole panel). `SelectComposeSuggestion` replaces the
+    exact `$(partial` span with the candidate's exact stored name (case exactly as stored, not
+    whatever case the user typed) plus a closing `)`, then repositions the caret just after it using
+    the same `afterNextRender`/`Injector` precedent `ScopeSidebarComponent` already established for
+    post-render DOM focus/selection work. Candidates come from the panel's already-bound `items()`
+    input reactively, with no dedicated fetch — this is a read-only authoring aid, not a
+    write-target list, so a snapshot that self-corrects whenever the parent's ledger cache refetches
+    is an acceptable tradeoff.
 
   **Built with plain writable signals + manual `(input)`/`(change)` handlers, not Angular Reactive
   Forms.** Every other form-like component in this codebase (`ScopeSidebarComponent`'s
@@ -89,4 +116,11 @@ org-repos-on-selected-visibility assertion is the one real query path in this co
 `WaitFor()` instead. See `core/testing/README.md` for why the two patterns aren't interchangeable.
 The composite-resolve preview's debounce (`RESOLVE_PREVIEW_DEBOUNCE_MS`) also needs `tick(400)` (or
 `fakeAsync`'s `flush()`) before asserting on `resolvePreview()`/`resolvingPreview()` — see
-`ItemEditorPanel.component.spec.ts`.
+`ItemEditorPanel.component.spec.ts`. The autocomplete dropdown has its own describe block in the
+same spec: setting a textarea's `value`/`selectionStart`/`selectionEnd` directly and dispatching a
+real `input`/`keydown`/`click`/`mousedown` `Event`/`KeyboardEvent`/`MouseEvent` (jsdom doesn't
+simulate a browser's own caret-move-on-type behavior, so the test has to set `selectionStart`
+itself before dispatching), no `fakeAsync` needed since none of this path is debounced. The
+click-to-select test dispatches `mousedown` before `click` deliberately — that's what the
+component's own `(mousedown)="$event.preventDefault()"` handler on each suggestion button relies on
+to keep the textarea from blurring (and the dropdown from closing) before the `click` handler runs.

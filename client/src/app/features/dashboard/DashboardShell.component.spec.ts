@@ -263,9 +263,9 @@ describe('DashboardShellComponent', () => {
       (b) => b.textContent?.trim() === 'Sync all',
     )!;
     syncAllButton.click();
-    fixture.detectChanges();
-
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Sync all 1 composite variable?');
+    // HandleSyncAll re-fetches the ledger before opening the dialog (see its doc comment), so the
+    // dialog only appears once that refetch resolves — not synchronously on click.
+    await WaitFor(fixture, () => (fixture.nativeElement as HTMLElement).textContent?.includes('Sync all 1 composite variable?') ?? false);
 
     const confirmButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(
       (b) => b.textContent?.trim() === 'Sync all' && b.closest('app-confirm-dialog') !== null,
@@ -295,7 +295,7 @@ describe('DashboardShellComponent', () => {
       (b) => b.textContent?.trim() === 'Sync all',
     )!;
     syncAllButton.click();
-    fixture.detectChanges();
+    await WaitFor(fixture, () => (fixture.nativeElement as HTMLElement).querySelector('app-confirm-dialog') !== null);
 
     const confirmButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(
       (b) => b.textContent?.trim() === 'Sync all' && b.closest('app-confirm-dialog') !== null,

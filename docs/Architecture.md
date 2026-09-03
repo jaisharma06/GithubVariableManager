@@ -592,7 +592,13 @@ rather than silently left out of this file's narrative:
   produces a calm all-current outcome, not a hidden button. The target list is **client-computed, not
   server-enumerated** — the client already has every composite item's `formula` from its last `GET
   /api/ledger` read, so re-deriving the same list server-side would be a redundant second fan-out over
-  data already in hand. New endpoint `POST /api/ledger/variables/sync-all`
+  data already in hand. A later fix made that "last read" a guaranteed-fresh one rather than
+  whatever the query cache happened to be holding: `DashboardShellComponent.HandleSyncAll` now
+  `await`s `ledgerQuery.refetch()` before opening the confirm dialog, since the cache's existing
+  `staleTime` could otherwise leave a just-created/just-edited composite (in this tab or another one)
+  out of the batch — see `features/dashboard/README.md`'s `DashboardShellComponent` entry for the
+  full flow, including the non-blocking handling of a failed refresh. New endpoint
+  `POST /api/ledger/variables/sync-all`
   (`Contracts/LedgerContracts.cs`'s `SyncAllVariablesRequest`/`SyncAllTargetResult`/
   `SyncAllVariablesResponse`, reusing `SyncVariableRequest` as the per-target shape, the same reuse
   precedent `LedgerScopeTargetRequest` set for `CopyRequest`/`DeleteEverywhereRequest`) is served by a
@@ -669,7 +675,17 @@ rather than silently left out of this file's narrative:
   ledger data (scanning each item's `formula` field, not its `value`), honoring the same
   scope-precedence reachability rule as the backend lookup builders, used to warn "N other variables
   reference this" on both the single-item delete dialog (`DashboardShellComponent`) and the
-  delete-everywhere dialog (`CompareViewComponent`) before a referenced variable is removed.
+  delete-everywhere dialog (`CompareViewComponent`) before a referenced variable is removed. A later,
+  non-phase-numbered addition on top of the manifest redesign: variable-name autocomplete while
+  authoring a `$(...)` formula in `ItemEditorPanelComponent`, purely a client-side editor UX aid with
+  no new endpoint and no change to resolution/write/sync semantics — `LedgerSupport.ts`'s
+  `DetectComposeTrigger(value, caretIndex)` detects whether the caret sits inside an unclosed `$(`,
+  and `FindComposableCandidates(items, targetScope, excludeId?)` filters the already-fetched ledger
+  read down to every other variable reachable from `targetScope`'s own precedence chain (secrets
+  excluded, the item being edited excluded); candidates come straight from the panel's already-bound
+  `items()` input, with no dedicated fetch. See `features/item-editor/README.md`/`core/facades/
+  README.md` for the full interaction (keyboard nav, exact-range text replacement) and the
+  reachability-check's argument order.
   `LedgerFacade` gained a `syncVariable` mutation (a real `injectMutation`, not a bare passthrough
   like `ResolveVariable`, since Sync genuinely writes GitHub state and callers need real
   pending/error signals) — no optimistic `onMutate`, since the resolved value can't be guessed

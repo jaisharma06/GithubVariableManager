@@ -89,6 +89,8 @@ export class LedgerComponent {
   readonly showRepoLevels = input(false);
   readonly showOrgLevel = input(false);
   readonly filters = input.required<LedgerFilters>();
+  /** True while `DashboardShellComponent` is re-fetching the ledger before opening the "Sync all" confirm dialog, so the button reflects a fresh, not possibly-stale, composite count. See `syncAll` below. */
+  readonly syncAllRefreshing = input(false);
 
   readonly filtersChange = output<LedgerFilters>();
   readonly add = output<void>();
@@ -98,7 +100,14 @@ export class LedgerComponent {
   readonly copyItem = output<LedgerItem>();
   readonly deleteItem = output<LedgerItem>();
   readonly syncItem = output<LedgerItem>();
-  /** The global "Sync all" action — re-syncs every composite variable across the currently-open ledger in one batch call. See `hasComposites` below for when the button that fires this is shown. */
+  /**
+   * The global "Sync all" action — re-syncs every composite variable across the currently-open
+   * ledger in one batch call. See `hasComposites` below for when the button that fires this is
+   * shown. The caller (`DashboardShellComponent`) re-fetches the ledger before acting on this —
+   * see `syncAllRefreshing` above — so the confirm dialog's target list reflects what's actually
+   * composite right now, not whatever this component's `items()` happened to hold at click time
+   * (which could be up to `staleTime` old, or older still across two open tabs).
+   */
   readonly syncAll = output<void>();
 
   protected readonly rowGrid = ROW_GRID;

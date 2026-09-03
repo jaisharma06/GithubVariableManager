@@ -111,6 +111,7 @@
           [showRepoLevels]="!!scope().repo"
           [showOrgLevel]="showOrgLevel()"
           [filters]="filters()"
+          [syncAllRefreshing]="syncAllRefreshing()"
           (filtersChange)="filters.set($event)"
           (add)="HandleAdd()"
           (addToSection)="HandleAddToSection($event)"

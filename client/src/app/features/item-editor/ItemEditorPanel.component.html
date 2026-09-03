@@ -106,11 +106,29 @@
           #valueInput
           rows="3"
           [value]="value()"
-          (input)="HandleValueInput($event)"
+          (input)="HandleValueInput($event); UpdateComposeSuggestions(valueInput)"
+          (click)="UpdateComposeSuggestions(valueInput)"
+          (keyup)="UpdateComposeSuggestions(valueInput)"
+          (keydown)="HandleValueKeydown($event)"
           [placeholder]="isEdit() && kind() === 'secret' ? 'Enter a new value to replace the current one' : ''"
           spellcheck="false"
           class="w-full resize-y rounded-md border border-line bg-ink px-3 py-2 font-mono text-sm text-text placeholder:text-text-dim/60 focus:border-brand focus:outline-none"
         ></textarea>
+        @if (kind() === 'variable' && composeSuggestions().length > 0) {
+          <div class="mt-2 max-h-40 overflow-y-auto rounded-md border border-line">
+            @for (item of composeSuggestions(); track item.id; let i = $index) {
+              <button
+                type="button"
+                (mousedown)="$event.preventDefault()"
+                (click)="SelectComposeSuggestion(item, valueInput)"
+                class="block w-full border-b border-line px-3 py-1.5 text-left font-mono text-xs last:border-b-0"
+                [class.bg-panel-raised]="i === composeActiveIndex()"
+              >
+                {{ item.name }}
+              </button>
+            }
+          </div>
+        }
         @if (kind() === 'variable') {
           <p class="mt-1 text-xs text-text-dim">
             Reference another variable in this scope with

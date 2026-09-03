@@ -60,8 +60,20 @@
   global `(syncAll)` output (see `features/ledger/README.md`'s `Ledger.component.ts`/`.html` entry for
   `hasComposites`/when the button is shown). `syncAllTargets` is a `computed` over
   `LedgerSupport.FindComposites(this.items())` — the client-computed target list, never
-  server-enumerated. `HandleSyncAll` opens the confirm dialog (`ConfirmDialogComponent`, the same
-  routine, non-destructive brand-hover tone as the single-item Sync dialog, not a danger tone);
+  server-enumerated. A subsequent fix made `HandleSyncAll` `async` and added a `syncAllRefreshing`
+  signal: it now `await`s `this.ledgerQuery.refetch()` **before** opening the confirm dialog
+  (`syncAllOpen.set(true)`), so `syncAllTargets`/`syncAllTitle` — being `computed` off
+  `ledgerItems()`, itself derived from `ledgerQuery.data()` — reflect what's actually composite right
+  now rather than whatever the query cache happened to hold at click time (up to the query's
+  `staleTime` old, or older still if a composite was created/edited in another tab). While that
+  refetch is in flight, `syncAllRefreshing` is `true` and passed down to `LedgerComponent` as its own
+  `syncAllRefreshing` input (see `features/ledger/README.md`), which shows "Checking for changes…"
+  and disables the button. If the refetch itself fails, that does **not** block opening the dialog —
+  the last-known items are still shown, consistent with how every other refetch failure in this app
+  behaves — instead `syncAllError` is set to a message noting the list below may be out of date,
+  surfaced through the confirm dialog's existing `[error]` binding just like a mutation failure would
+  be. `HandleSyncAll` opens the confirm dialog (`ConfirmDialogComponent`, the same routine,
+  non-destructive brand-hover tone as the single-item Sync dialog, not a danger tone);
   `HandleConfirmSyncAll` calls `LedgerFacade.syncAllVariables.mutateAsync(this.syncAllTargets())`
   (`POST /api/ledger/variables/sync-all`) and keeps `syncAllOpen` true throughout so the dialog
   doesn't flash closed between the confirm and results steps. `syncAllPending` is

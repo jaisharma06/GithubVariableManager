@@ -72,7 +72,11 @@
   drive `LedgerFacade.syncAllVariables` (`POST /api/ledger/variables/sync-all` — see
   `features/dashboard/README.md` and `core/facades/README.md`'s `LedgerFacade.ts` entry). This
   component only computes the client-side target list (via `FindComposites`) and emits the intent —
-  it never calls the Facade itself.
+  it never calls the Facade itself. A later fix added a `syncAllRefreshing` input: while
+  `DashboardShellComponent` re-fetches the ledger before opening the confirm dialog (see that
+  component's `HandleSyncAll` entry below for why), the "Sync all" button shows "Checking for
+  changes…" and is disabled, rather than immediately opening a dialog whose target list could still
+  be built from a stale cached read.
 - **`CopyItemDialog.component.ts`/`.html`** — push one variable/secret's value out to a batch of
   other scopes at once. `BuildCandidates` (every other scope in the org/repo that could receive a
   copy, excluding the source, with an existing-item lookup for the overwrite/matches/not-set hint)

@@ -123,3 +123,38 @@ export function FindDependents(items: LedgerItem[], name: string, scope: ScopeRe
 export function FindComposites(items: LedgerItem[]): LedgerItem[] {
   return items.filter((item) => item.kind === 'variable' && item.formula !== undefined);
 }
+
+/**
+ * Eligible reference candidates for the composite-formula autocomplete in the item editor:
+ * every OTHER variable visible in `targetScope`'s own precedence chain (secrets excluded — composites
+ * can never reference a secret; the item currently being edited excluded via `excludeId`, to avoid
+ * trivially suggesting a self-reference).
+ *
+ * Note the argument order passed to `InScopeChain` here is `(targetScope, item.scope)` — the
+ * reverse of `FindDependents`' `(item.scope, scope)` below. `InScopeChain(viewer, definer)` asks
+ * "is a value defined at `definer` visible to `viewer`?" `FindDependents` asks that with the
+ * composite as the viewer and the deleted/renamed item as the definer; here it's the other way
+ * round — `targetScope` (where the formula is being authored) is the viewer, and each candidate
+ * `item` is the definer whose value must reach it.
+ */
+export function FindComposableCandidates(items: LedgerItem[], targetScope: ScopeRef, excludeId?: string): LedgerItem[] {
+  return items.filter(
+    (item) => item.kind === 'variable' && item.id !== excludeId && InScopeChain(targetScope, item.scope),
+  );
+}
+
+/**
+ * Pure caret-context detector for the composite-formula autocomplete: is the caret currently inside
+ * an unclosed `$(...)` in `value`? Scans backward from `caretIndex` for the nearest `$(` with no
+ * intervening `)`. Returns the index right after that `$(` plus whatever partial name text follows
+ * it up to the caret, or `null` if the caret isn't inside an open reference.
+ */
+export function DetectComposeTrigger(value: string, caretIndex: number): { start: number; partial: string } | null {
+  const upToCaret = value.slice(0, caretIndex);
+  const openIndex = upToCaret.lastIndexOf('$(');
+  if (openIndex === -1) return null;
+  const closeIndex = upToCaret.lastIndexOf(')');
+  if (closeIndex > openIndex) return null; // already closed since the last "$(" — caret isn't inside it
+  const start = openIndex + 2;
+  return { start, partial: value.slice(start, caretIndex) };
+}

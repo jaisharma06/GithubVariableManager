@@ -2,7 +2,14 @@
 // TestBed needed — these are plain, DI-free functions, same testing shape this file's other
 // exports (SameScope, OptimisticVariable, …) would get if they had dedicated specs.
 import type { LedgerItem } from '../Types';
-import { ExtractReferences, FindComposites, FindDependents, IsCompositeValue } from './LedgerSupport';
+import {
+  DetectComposeTrigger,
+  ExtractReferences,
+  FindComposableCandidates,
+  FindComposites,
+  FindDependents,
+  IsCompositeValue,
+} from './LedgerSupport';
 
 function MakeVariable(name: string, value: string, scope: LedgerItem['scope'], level: LedgerItem['level'] = 'repository'): LedgerItem {
   return {
@@ -165,5 +172,79 @@ describe('FindDependents', () => {
     const dependents = FindDependents(items, 'SELF', org);
 
     expect(dependents).toEqual([]);
+  });
+});
+
+describe('FindComposableCandidates', () => {
+  const org = { org: 'octo-org' };
+  const repo = { org: 'octo-org', repo: 'widgets' };
+  const prodEnv = { org: 'octo-org', repo: 'widgets', env: 'prod' };
+  const otherRepo = { org: 'octo-org', repo: 'other' };
+
+  it('includes variables reachable per the env > repo > org precedence chain', () => {
+    const items = [
+      MakeVariable('BASE_URL', 'https://example.com', org, 'organization'),
+      MakeVariable('API_KEY', 'abc123', repo, 'repository'),
+      MakeVariable('OTHER_REPO_ONLY', 'x', otherRepo, 'repository'),
+    ];
+
+    const candidates = FindComposableCandidates(items, prodEnv);
+
+    expect(candidates.map((i) => i.name)).toEqual(['BASE_URL', 'API_KEY']);
+  });
+
+  it('excludes the item currently being edited via excludeId', () => {
+    const self = MakeVariable('SELF', 'x', repo, 'repository');
+    const other = MakeVariable('OTHER', 'y', repo, 'repository');
+
+    const candidates = FindComposableCandidates([self, other], repo, self.id);
+
+    expect(candidates.map((i) => i.name)).toEqual(['OTHER']);
+  });
+
+  it('excludes secrets — composites can never reference a secret', () => {
+    const secret: LedgerItem = { ...MakeVariable('TOKEN', '', repo, 'repository'), kind: 'secret' };
+
+    const candidates = FindComposableCandidates([secret], repo);
+
+    expect(candidates).toEqual([]);
+  });
+
+  it('excludes a variable outside the target scope chain', () => {
+    const items = [MakeVariable('ENV_ONLY', 'x', prodEnv, 'environment')];
+
+    const candidates = FindComposableCandidates(items, repo);
+
+    expect(candidates).toEqual([]);
+  });
+});
+
+describe('DetectComposeTrigger', () => {
+  it('detects the caret inside an open, empty $(', () => {
+    expect(DetectComposeTrigger('$(', 2)).toEqual({ start: 2, partial: '' });
+  });
+
+  it('detects the caret inside an open $( with a partial name typed', () => {
+    expect(DetectComposeTrigger('$(BASE_', 7)).toEqual({ start: 2, partial: 'BASE_' });
+  });
+
+  it('returns null once the reference has been closed', () => {
+    expect(DetectComposeTrigger('$(BASE_URL)', 11)).toBeNull();
+  });
+
+  it('returns null when there is no "$(" at all', () => {
+    expect(DetectComposeTrigger('just-a-value', 5)).toBeNull();
+  });
+
+  it('detects the caret mid-formula after other text precedes the "$("', () => {
+    expect(DetectComposeTrigger('prefix-$(BASE', 13)).toEqual({ start: 9, partial: 'BASE' });
+  });
+
+  it('picks the nearest unclosed "$(" among multiple references on one line', () => {
+    expect(DetectComposeTrigger('$(BASE_URL)/$(SUF', 17)).toEqual({ start: 14, partial: 'SUF' });
+  });
+
+  it('returns null when the caret sits after a closed reference with no new "$(" opened yet', () => {
+    expect(DetectComposeTrigger('$(BASE_URL)/cdn', 15)).toBeNull();
   });
 });

@@ -162,7 +162,21 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   than server-enumerated: the client already has every composite item's `formula` from its last `GET
   /api/ledger` read (populated server-side from each scope's hidden manifest), so re-deriving the same
   list server-side would just be a second, redundant fan-out over data this component already has in
-  hand.
+  hand. A later, non-phase-numbered addition, the pair behind `ItemEditorPanelComponent`'s
+  composite-formula autocomplete: `DetectComposeTrigger(value, caretIndex)` scans backward from the
+  caret for the nearest unclosed `$(` (bailing out if a `)` closed it since) and returns
+  `{ start, partial }` — the index right after `$(` and whatever partial name follows it up to the
+  caret — or `null` if the caret isn't inside an open reference; and
+  `FindComposableCandidates(items, targetScope, excludeId?)`, every OTHER variable (secrets excluded
+  — a composite can never reference one; the item being edited excluded via `excludeId`) visible in
+  `targetScope`'s own precedence chain. **Note the argument order `FindComposableCandidates` passes
+  to the private `InScopeChain` helper is `(targetScope, item.scope)` — the reverse of
+  `FindDependents`' `(item.scope, scope)` below.** `InScopeChain(viewer, definer)` asks "is a value
+  defined at `definer` visible to `viewer`?"; `FindDependents` asks that with the composite as the
+  viewer and the deleted/renamed item as the definer, while here it's the other way round —
+  `targetScope` (where the formula is being authored) is the viewer, and each candidate `item` is the
+  definer whose value must reach it. Both are pure and DI-free, tested without a `TestBed` in
+  `LedgerSupport.spec.ts`, same as this file's other exports.
 - **`WorkflowsFacade.ts`** — `WorkflowsQuery(org, repo)`/`WorkflowRunsQuery(org, repo, workflowId)`/
   `WorkflowRunDetailQuery(org, repo, runId)` (methods, same reasoning as `ScopesFacade`/
   `EnvironmentsFacade` above); `deleteWorkflowRun`/`rerunWorkflowRun` are shared `injectMutation`

@@ -414,4 +414,133 @@ describe('ItemEditorPanelComponent', () => {
 
     expect(closedSpy).toHaveBeenCalled();
   });
+
+  describe('composite-formula autocomplete', () => {
+    const BASE_URL: LedgerItem = {
+      id: 'variable:repository:acme-corp:widgets::BASE_URL',
+      kind: 'variable',
+      level: 'repository',
+      scope: { org: 'acme-corp', repo: 'widgets' },
+      name: 'BASE_URL',
+      value: 'https://example.com',
+      createdAt: '',
+      updatedAt: '',
+    };
+    const BASE_PATH: LedgerItem = { ...BASE_URL, id: 'variable:repository:acme-corp:widgets::BASE_PATH', name: 'BASE_PATH' };
+
+    function SetCaret(textarea: HTMLTextAreaElement, position: number): void {
+      textarea.selectionStart = position;
+      textarea.selectionEnd = position;
+    }
+
+    function SuggestionButtons(): HTMLButtonElement[] {
+      return Array.from(fixture.nativeElement.querySelectorAll('button')).filter(
+        (b): b is HTMLButtonElement => (b as HTMLButtonElement).classList.contains('font-mono'),
+      );
+    }
+
+    it('shows filtered suggestions while typing an open $(...) reference', () => {
+      fixture.componentRef.setInput('initial', null);
+      fixture.componentRef.setInput('items', [EXISTING_VARIABLE, BASE_URL, BASE_PATH]);
+      fixture.detectChanges();
+
+      const textarea = GetTextarea();
+      textarea.value = '$(BASE_';
+      SetCaret(textarea, textarea.value.length);
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      const names = SuggestionButtons().map((b) => b.textContent?.trim());
+      expect(names).toEqual(['BASE_URL', 'BASE_PATH']);
+    });
+
+    it('excludes the item currently being edited from its own suggestions', () => {
+      const composite: LedgerItem = { ...EXISTING_VARIABLE, name: 'API_URL', formula: '' };
+      fixture.componentRef.setInput('initial', composite);
+      fixture.componentRef.setInput('items', [composite, BASE_URL]);
+      fixture.detectChanges();
+
+      const textarea = GetTextarea();
+      textarea.value = '$(API';
+      SetCaret(textarea, textarea.value.length);
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      expect(SuggestionButtons().map((b) => b.textContent?.trim())).toEqual([]);
+    });
+
+    it('selects a suggestion via ArrowDown + Enter, replacing the correct text range and moving the caret past the inserted ")"', () => {
+      fixture.componentRef.setInput('initial', null);
+      fixture.componentRef.setInput('items', [EXISTING_VARIABLE, BASE_URL, BASE_PATH]);
+      fixture.detectChanges();
+
+      const textarea = GetTextarea();
+      textarea.value = 'prefix-$(BASE_';
+      SetCaret(textarea, textarea.value.length);
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+      fixture.detectChanges();
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      fixture.detectChanges();
+
+      // ArrowDown moves from index 0 (BASE_URL) to index 1 (BASE_PATH).
+      expect(GetTextarea().value).toBe('prefix-$(BASE_PATH)');
+      expect(SuggestionButtons()).toEqual([]);
+    });
+
+    it('dismisses only the popup on Escape, leaving the panel open', () => {
+      fixture.componentRef.setInput('initial', null);
+      fixture.componentRef.setInput('items', [EXISTING_VARIABLE, BASE_URL]);
+      fixture.detectChanges();
+      const closedSpy = jasmine.createSpy('closed');
+      fixture.componentInstance.closed.subscribe(closedSpy);
+
+      const textarea = GetTextarea();
+      textarea.value = '$(BASE_';
+      SetCaret(textarea, textarea.value.length);
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(SuggestionButtons().length).toBeGreaterThan(0);
+
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+
+      expect(SuggestionButtons()).toEqual([]);
+      expect(closedSpy).not.toHaveBeenCalled();
+    });
+
+    it('still closes the panel on Escape when no suggestions are open', () => {
+      fixture.componentRef.setInput('initial', null);
+      fixture.detectChanges();
+      const closedSpy = jasmine.createSpy('closed');
+      fixture.componentInstance.closed.subscribe(closedSpy);
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+      expect(closedSpy).toHaveBeenCalled();
+    });
+
+    it('selects a suggestion via click without the textarea losing focus first', () => {
+      fixture.componentRef.setInput('initial', null);
+      fixture.componentRef.setInput('items', [EXISTING_VARIABLE, BASE_URL]);
+      fixture.detectChanges();
+
+      const textarea = GetTextarea();
+      textarea.value = '$(BASE_';
+      SetCaret(textarea, textarea.value.length);
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      const button = SuggestionButtons()[0];
+      // (mousedown) preventDefault is what keeps the textarea from blurring before (click) fires —
+      // simulate both events the way a real click does.
+      button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+
+      expect(GetTextarea().value).toBe('$(BASE_URL)');
+    });
+  });
 });

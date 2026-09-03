@@ -1,8 +1,23 @@
-import { AfterViewInit, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, input, output, signal } from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  ElementRef,
+  HostListener,
+  Injector,
+  OnDestroy,
+  OnInit,
+  ViewChild,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { CopyFacade } from '../../core/facades/CopyFacade';
 import { ItemMutationsFacade } from '../../core/facades/ItemMutationsFacade';
 import { LedgerFacade } from '../../core/facades/LedgerFacade';
-import { IsCompositeValue, SameScope } from '../../core/facades/LedgerSupport';
+import { DetectComposeTrigger, FindComposableCandidates, IsCompositeValue, SameScope } from '../../core/facades/LedgerSupport';
 import { ScopesFacade } from '../../core/facades/ScopesFacade';
 import type { ResolveVariableResult } from '../../core/gateways/ILedgerGateway';
 import type { PutSecretOptions } from '../../core/gateways/ISecretsGateway';
@@ -65,6 +80,7 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit, OnDestro
   private readonly copyFacade = inject(CopyFacade);
   private readonly scopesFacade = inject(ScopesFacade);
   private readonly ledgerFacade = inject(LedgerFacade);
+  private readonly injector = inject(Injector);
 
   @ViewChild('nameInput') private readonly nameInput?: ElementRef<HTMLInputElement>;
   @ViewChild('valueInput') private readonly valueInput?: ElementRef<HTMLTextAreaElement>;
@@ -108,6 +124,15 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit, OnDestro
   protected readonly resolvePreview = signal<ResolveVariableResult | null>(null);
   protected readonly resolvingPreview = signal(false);
   private resolveDebounceHandle: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * Composite-formula autocomplete: eligible variable-name suggestions for whatever `$(...)` the
+   * caret currently sits inside, and which row is highlighted for keyboard selection. An empty
+   * list means "hide the dropdown" — there's no separate "no matches" affordance, matching this
+   * app's existing "hide when not applicable" convention (see resolvePreview above).
+   */
+  protected readonly composeSuggestions = signal<LedgerItem[]>([]);
+  protected readonly composeActiveIndex = signal(0);
 
   protected readonly isEdit = computed(() => this.initial() !== null);
   /** True only for a fresh create opened via SectionHeaderComponent's "Paste" action — drives the "from clipboard" provenance note, mirroring how isEdit()/lockTarget() already distinguish this form's other open-modes. */
@@ -209,6 +234,74 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit, OnDestro
   protected HandleValueInput(event: Event): void {
     this.value.set((event.target as HTMLTextAreaElement).value);
     this.ScheduleResolvePreview();
+  }
+
+  /**
+   * Fires on (input)/(click)/(keyup) on the value textarea — covers typing, mouse caret
+   * repositioning, and arrow-key caret movement alike, since all three can move the caret in or
+   * out of an open `$(...)` reference. Kept separate from HandleValueInput (rather than folded
+   * into it) because it also needs to run on events HandleValueInput never sees (click, keyup).
+   */
+  protected UpdateComposeSuggestions(textarea: HTMLTextAreaElement): void {
+    const trigger = DetectComposeTrigger(textarea.value, textarea.selectionStart);
+    if (!trigger) {
+      this.composeSuggestions.set([]);
+      return;
+    }
+
+    const partial = trigger.partial.toLowerCase();
+    const candidates = FindComposableCandidates(this.items(), this.targetScope(), this.initial()?.id).filter((item) =>
+      item.name.toLowerCase().startsWith(partial),
+    );
+    this.composeSuggestions.set(candidates);
+    this.composeActiveIndex.set(0);
+  }
+
+  /** Bound on the value textarea itself — distinct from HandleKeydown's document-level Escape-closes-the-panel listener. */
+  protected HandleValueKeydown(event: KeyboardEvent): void {
+    const suggestions = this.composeSuggestions();
+    if (suggestions.length === 0) return;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.composeActiveIndex.update((i) => (i + 1) % suggestions.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.composeActiveIndex.update((i) => (i - 1 + suggestions.length) % suggestions.length);
+    } else if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      this.SelectComposeSuggestion(suggestions[this.composeActiveIndex()], event.target as HTMLTextAreaElement);
+    } else if (event.key === 'Escape') {
+      // Dismiss only the popup — stopPropagation keeps this from also reaching HandleKeydown's
+      // document-level listener, which would otherwise close the whole panel.
+      event.preventDefault();
+      event.stopPropagation();
+      this.composeSuggestions.set([]);
+    }
+  }
+
+  /**
+   * Inserts `item.name` in place of whatever partial text triggered the suggestion, closing the
+   * reference with `)`. Re-derives the trigger context from current state rather than trusting
+   * whatever UpdateComposeSuggestions last computed, in case anything shifted between then and now.
+   */
+  protected SelectComposeSuggestion(item: LedgerItem, textarea: HTMLTextAreaElement): void {
+    const trigger = DetectComposeTrigger(this.value(), textarea.selectionStart);
+    if (!trigger) return;
+
+    const newValue = this.value().slice(0, trigger.start) + item.name + ')' + this.value().slice(textarea.selectionStart);
+    this.value.set(newValue);
+    this.composeSuggestions.set([]);
+    this.ScheduleResolvePreview();
+
+    const caretPos = trigger.start + item.name.length + 1;
+    afterNextRender(
+      () => {
+        textarea.focus();
+        textarea.setSelectionRange(caretPos, caretPos);
+      },
+      { injector: this.injector },
+    );
   }
 
   protected HandleKindChange(kind: ItemKind): void {

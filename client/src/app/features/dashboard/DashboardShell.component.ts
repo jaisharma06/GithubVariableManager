@@ -124,11 +124,14 @@ export class DashboardShellComponent {
    * `syncAllOpen` gates the whole flow (confirm step, then results step); `syncAllResult` being set
    * is what switches the dialog from the confirm prompt to the three-bucket results view — null
    * while still on the confirm step, non-null (even an empty array in principle) once the mutation
-   * has resolved.
+   * has resolved. `syncAllRefreshing` covers the step before any of that: `HandleSyncAll` re-fetches
+   * the ledger first (see its doc comment) so `syncAllTargets` below is built from what's actually
+   * composite right now, not from `ledgerItems()`'s possibly-stale cached snapshot at click time.
    */
   protected readonly syncAllOpen = signal(false);
   protected readonly syncAllResult = signal<SyncAllTargetResult[] | null>(null);
   protected readonly syncAllError = signal<string | null>(null);
+  protected readonly syncAllRefreshing = signal(false);
 
   // environmentsFacade/itemMutationsFacade themselves stay private (DI dependencies aren't part
   // of this component's template-facing API) — just their pending signals are re-exposed for the
@@ -277,9 +280,33 @@ export class DashboardShellComponent {
     this.syncError.set(null);
   }
 
-  protected HandleSyncAll(): void {
+  /**
+   * Re-fetches the ledger before opening the confirm dialog, so "Sync all" resolves every
+   * variable's current composite-ness/formula fresh and only then decides what to sync — not
+   * whichever items `ledgerItems()` happened to hold at click time (which could be up to the
+   * query's `staleTime` old, or older still if a composite was just created/edited in another tab).
+   * `syncAllTargets` below is a `computed` off `ledgerItems()`, so once this refetch's result lands
+   * in the query cache, the confirm dialog's title/target list reflect it automatically — no
+   * separate "fresh targets" plumbing needed. A failed refresh doesn't block opening the dialog
+   * (the last-known items are still shown, same as any other refetch failure in this app); it's
+   * surfaced via `syncAllError` so the user can see the list may be stale before confirming.
+   */
+  protected async HandleSyncAll(): Promise<void> {
     this.syncAllError.set(null);
     this.syncAllResult.set(null);
+    this.syncAllRefreshing.set(true);
+    try {
+      const result = await this.ledgerQuery.refetch();
+      if (result.isError) {
+        const message = result.error instanceof Error ? result.error.message : 'GitHub rejected this request.';
+        this.syncAllError.set(`Couldn't refresh before syncing — the list below may be out of date: ${message}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'GitHub rejected this request.';
+      this.syncAllError.set(`Couldn't refresh before syncing — the list below may be out of date: ${message}`);
+    } finally {
+      this.syncAllRefreshing.set(false);
+    }
     this.syncAllOpen.set(true);
   }
 
