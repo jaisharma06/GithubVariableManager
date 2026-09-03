@@ -62,7 +62,17 @@
   `pasteToSection: { level, env? }` output, so `DashboardShellComponent` knows which section to
   pre-fill the create form for. Also bubbles `LedgerRowComponent.syncItem` straight up as its own
   `syncItem` output (composite-variable Sync action, see the `LedgerRow.component.ts`/`.html` entry
-  above) — no shaping needed here, same pass-through as `editItem`/`copyItem`/`deleteItem`.
+  above) — no shaping needed here, same pass-through as `editItem`/`copyItem`/`deleteItem`. A later,
+  non-phase-numbered addition, the bulk complement to per-row Sync: `hasComposites` (a `computed` over
+  `LedgerSupport.FindComposites(this.items())`) gates a single global "Sync all" toolbar button —
+  shown only when the scope has at least one composite variable, hidden entirely (not disabled)
+  otherwise; staleness plays no role in this gate, so a scope where every composite is already current
+  still shows the button, producing a calm all-current outcome rather than a hidden one. A `syncAll`
+  output (`void`) fires on click; `DashboardShellComponent` catches it to open the confirm dialog and
+  drive `LedgerFacade.syncAllVariables` (`POST /api/ledger/variables/sync-all` — see
+  `features/dashboard/README.md` and `core/facades/README.md`'s `LedgerFacade.ts` entry). This
+  component only computes the client-side target list (via `FindComposites`) and emits the intent —
+  it never calls the Facade itself.
 - **`CopyItemDialog.component.ts`/`.html`** — push one variable/secret's value out to a batch of
   other scopes at once. `BuildCandidates` (every other scope in the org/repo that could receive a
   copy, excluding the source, with an existing-item lookup for the overwrite/matches/not-set hint)

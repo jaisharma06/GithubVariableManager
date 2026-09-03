@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { injectMutation, injectQuery, injectQueryClient } from '@tanstack/angular-query-experimental';
 import { AuthService } from '../services/AuthService';
-import { LEDGER_GATEWAY, type ILedgerGateway, type ResolveVariableResult } from '../gateways/ILedgerGateway';
+import { LEDGER_GATEWAY, type ILedgerGateway, type ResolveVariableResult, type SyncAllTargetResult } from '../gateways/ILedgerGateway';
 import type { DashboardScope, ItemLevel, ScopeRef } from '../Types';
 
 interface SyncVariableParams {
@@ -59,6 +59,21 @@ export class LedgerFacade {
    */
   readonly syncVariable = injectMutation(() => ({
     mutationFn: (p: SyncVariableParams) => this.ledgerGateway.SyncVariable(p.scope, p.level, p.name),
+    onSuccess: () => {
+      this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  }));
+
+  /**
+   * One global "Sync all" action — same shape/tradeoffs as `syncVariable` above (a proper
+   * `injectMutation` for `.isPending()`/error state, no optimistic `onMutate` since every resolved
+   * value depends on a fresh server-side read). `targets` is caller-supplied (client-computed via
+   * `LedgerSupport.FindComposites`), not derived here — this Facade stays a thin query/mutation
+   * wrapper, not an orchestration point.
+   */
+  readonly syncAllVariables = injectMutation(() => ({
+    mutationFn: (targets: { scope: ScopeRef; level: ItemLevel; name: string }[]): Promise<SyncAllTargetResult[]> =>
+      this.ledgerGateway.SyncAllVariables(targets),
     onSuccess: () => {
       this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },

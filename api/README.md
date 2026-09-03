@@ -87,8 +87,17 @@ for why each layer stays single-purpose:
   its own); the server re-reads the formula from its own scope's manifest and recomputes it against
   current sibling values, catching `CompositeFormulaNotFoundException` → `400` (the name isn't
   actually tracked as composite) alongside the existing `CompositeCircularReferenceException` → `400`
-  catch. Sync is deliberately per-row only here — there's no bulk "sync all" route, a real scope
-  boundary, not an oversight. `GET /api/ledger` itself needed no route change for either the original
+  catch. A later, non-phase-numbered addition, the bulk complement to that per-row Sync: `POST
+  /api/ledger/variables/sync-all` — one global "Sync all" action, fanning out over a
+  client-computed target list (`SyncAllVariablesRequest.Targets`, reusing `SyncVariableRequest` as
+  the per-target shape — the client already knows which items are composite from its last `GET
+  /api/ledger` read, so the server never re-enumerates manifests from scratch for this route) via a
+  new `Services/SyncAllVariablesService.cs` (see `Services/` below). Catches
+  `CompositeFormulaNotFoundException`/`CompositeCircularReferenceException` **per target** (unlike
+  this single-item handler above, which maps either to a `400` for the whole request), since a bulk
+  sync must not let one bad formula among many targets abort the batch — each target's outcome
+  (`Ok`/`Synced`/`ResolvedValue`/`Message`) is reported independently in `SyncAllVariablesResponse`.
+  `GET /api/ledger` itself needed no route change for either the original
   feature or its manifest redesign — the composite fields ride along inside the existing
   `LedgerItemResponse` (see `Contracts/` below), populated by a post-fan-out pass inside
   `LedgerService.GetLedgerAsync` (see `Services/` below) that now reads no extra GitHub calls beyond
@@ -171,7 +180,18 @@ for why each layer stays single-purpose:
   manual recovery/refresh action replacing the old "flatten to literal" 1:1: re-reads the formula
   from the scope's manifest (throwing `CompositeFormulaNotFoundException` if the name isn't actually
   tracked), recomputes it fresh, and overwrites the real GitHub value — the manifest itself is
-  untouched, so the formula survives every sync. `UpsertVariableAsync`
+  untouched, so the formula survives every sync. A later, non-phase-numbered addition, alongside a
+  new private `ResolveFromManifestAsync` helper the two now share (re-reads the formula from the
+  manifest, builds the sibling-value lookup, resolves, throws the same two domain exceptions either
+  caller already documents): `SyncCompositeVariableIfStaleAsync`, the "Sync all" batch action's
+  per-item primitive (called by `SyncAllVariablesService` below). Kept as its own method rather than
+  an optional parameter on `SyncCompositeVariableAsync`, because the two have genuinely different
+  write contracts — a user explicitly clicking Sync on one row must still write even when the value
+  is already current (`SyncCompositeVariableAsync`'s existing, unconditional-write behavior, left
+  untouched), while a global batch sync should skip writing to every already-current item rather than
+  issuing N no-op writes; the skip costs nothing extra, since the item's current value is read for
+  free as part of `CompositeVariableResolver.BuildLookupAsync`'s own scope-chain lookup, which already
+  includes this scope's own variables (including this one). `UpsertVariableAsync`
   (the Copy/replicate-to-environments write path) deliberately does **not** run the circular-check/
   manifest-tracking logic at all — copying a composite's resolved literal into a scope that's merely
   missing one of its referenced names is an explicitly allowed, non-error outcome, and a copy
@@ -255,6 +275,17 @@ for why each layer stays single-purpose:
   fallthrough. Both are registered `AddScoped`, not `AddSingleton` — unlike
   `WorkflowRunCleanupService` above, no state needs to survive between requests, since
   `Task.WhenAll` fanning out within one request/one DI scope is sufficient.
+  `SyncAllVariablesService` (a later, non-phase-numbered addition, `AddScoped`) is the "Sync all"
+  bulk action's orchestration — `Task.WhenAll` over a caller-supplied target list, calling
+  `ItemMutationService.SyncCompositeVariableIfStaleAsync` per target in-process, the same
+  "thin orchestration Service over existing single-item primitives" shape as `CopyService`/
+  `DeleteEverywhereService` above, no resolution logic of its own. One deliberate structural
+  deviation from that shared precedent: `CopyService`/`DeleteEverywhereService` only catch
+  `Octokit.ApiException` per-target, but `SyncAllVariablesService` also catches
+  `CompositeCircularReferenceException`/`CompositeFormulaNotFoundException` per-target — unlike
+  Copy/Delete-everywhere where every target is the same simple write, those two domain exceptions
+  are routine, expected per-item outcomes here (a formula gone circular after a sibling changed, or
+  a target whose manifest entry no longer exists), not something that should abort the whole batch.
   `EnvironmentVariableCopyService` (also a post-migration addition, `AddScoped` like `CopyService`/
   `DeleteEverywhereService` above) copies every variable from one environment into another — a
   **sibling** to `CopyService`, not an extension of it, even though both are batch operations on the
@@ -463,7 +494,16 @@ for why each layer stays single-purpose:
   `SyncVariableRequest` deliberately carries no formula/value of its own (`Org`/`Repo`/`Env`/`Level`/
   `Name` only), since the server looks the formula up from the manifest it already owns rather than
   trusting a client-supplied one; `SyncVariableResponse` returns the freshly-resolved
-  `ResolvedValue`/`UnresolvedReferences`.
+  `ResolvedValue`/`UnresolvedReferences`. A later, non-phase-numbered addition, the bulk complement:
+  `SyncAllVariablesRequest` (one field, `Targets`, an `IReadOnlyList<SyncVariableRequest>` — reusing
+  that request shape per-target rather than inventing a new one, the same reuse precedent
+  `LedgerScopeTargetRequest` set for `CopyRequest`/`DeleteEverywhereRequest`) is the wire shape for
+  `POST /api/ledger/variables/sync-all`. `SyncAllTargetResult` (`Target`/`Ok`/`Synced`/
+  `ResolvedValue`/`Message`) reports each target's outcome independently — `Ok`/`Synced` are
+  independent flags: `Ok:true,Synced:true` means resolved fresh and the value changed, so it was
+  written; `Ok:true,Synced:false` means resolved fresh but already current, so the write was skipped;
+  `Ok:false` means a circular formula, a missing manifest entry, or a GitHub API error, with
+  `Message` set in that case. `SyncAllVariablesResponse` wraps a list of these.
 
 ## Stateless by design
 

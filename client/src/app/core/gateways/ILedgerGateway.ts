@@ -25,6 +25,22 @@ export interface SyncVariableResult {
 }
 
 /**
+ * Per-target outcome of the global "Sync all" action — see `SyncAllVariables` below. Mirrors
+ * `api/Contracts/LedgerContracts.cs`'s `SyncAllTargetResult`. `ok`/`synced` are independent flags:
+ * `ok: true, synced: true` means resolved fresh and the value changed, so it was written;
+ * `ok: true, synced: false` means resolved fresh but already current, so the write was skipped;
+ * `ok: false` means a circular formula, a missing manifest entry, or a GitHub API error — `message`
+ * is set in that case.
+ */
+export interface SyncAllTargetResult {
+  target: { scope: ScopeRef; level: ItemLevel; name: string };
+  ok: boolean;
+  synced: boolean;
+  resolvedValue?: string;
+  message?: string;
+}
+
+/**
  * Talks to the `api/` ASP.NET Core backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`).
  * Started as purely the merged read (`GET /api/ledger`) — the variables + secrets + environment
  * fan-out and locked-section classification that used to be assembled client-side by
@@ -76,6 +92,15 @@ export interface ILedgerGateway {
    * sent, the server looks it up from its own manifest.
    */
   SyncVariable(scope: ScopeRef, level: ItemLevel, name: string): Promise<SyncVariableResult>;
+  /**
+   * One global "Sync all" action — `POST /api/ledger/variables/sync-all`. Re-syncs every composite
+   * variable across the currently-open ledger in one batch call, reusing the per-row Sync machinery
+   * server-side (`ItemMutationService.SyncCompositeVariableIfStaleAsync`), skipping any target
+   * already up to date rather than writing it unconditionally the way a single-row Sync does. The
+   * target list is caller-supplied (client-computed via `LedgerSupport.FindComposites` from
+   * already-fetched ledger data), not re-enumerated server-side.
+   */
+  SyncAllVariables(targets: { scope: ScopeRef; level: ItemLevel; name: string }[]): Promise<SyncAllTargetResult[]>;
 }
 
 export const LEDGER_GATEWAY = new InjectionToken<ILedgerGateway>('LEDGER_GATEWAY');

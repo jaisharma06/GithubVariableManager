@@ -155,6 +155,47 @@ public sealed class ItemMutationService(
     /// </summary>
     public async Task<SyncVariableResponse> SyncCompositeVariableAsync(string org, string? repo, string? env, string level, string name)
     {
+        var (_, result) = await ResolveFromManifestAsync(org, repo, env, level, name);
+
+        await actionsRestClient.UpdateVariableAsync(org, repo, env, level, name, name, result.ResolvedValue!);
+        return new SyncVariableResponse(result.ResolvedValue!, result.UnresolvedReferences);
+    }
+
+    /// <summary>
+    /// The "Sync all" batch action's per-item primitive (<see cref="SyncAllVariablesService"/>) —
+    /// same re-read-formula/recompute/overwrite shape as <see cref="SyncCompositeVariableAsync"/>
+    /// above, kept as its own method rather than an optional parameter on that one because the two
+    /// have genuinely different write contracts: a user explicitly clicking Sync on one row must
+    /// still write even when the value is already current (that's <see cref="SyncCompositeVariableAsync"/>'s
+    /// existing, unconditional-write behavior — left untouched), while a global batch sync should
+    /// skip writing to every already-current item rather than issuing N no-op writes. Skipping the
+    /// write costs nothing extra — <paramref name="name"/>'s current value is read for free as part
+    /// of <see cref="CompositeVariableResolver.BuildLookupAsync"/>'s own scope-chain lookup, which
+    /// already includes this scope's own variables (including this one).
+    /// </summary>
+    public async Task<(bool Synced, string ResolvedValue)> SyncCompositeVariableIfStaleAsync(string org, string? repo, string? env, string level, string name)
+    {
+        var (lookup, result) = await ResolveFromManifestAsync(org, repo, env, level, name);
+
+        lookup.TryGetValue(name, out var currentValue); // free — BuildLookupAsync already fetched this scope's own variables, including this one
+        if (currentValue == result.ResolvedValue) return (false, result.ResolvedValue!);
+
+        await actionsRestClient.UpdateVariableAsync(org, repo, env, level, name, name, result.ResolvedValue!);
+        return (true, result.ResolvedValue!);
+    }
+
+    /// <summary>
+    /// Shared manifest-lookup/resolve step behind <see cref="SyncCompositeVariableAsync"/> and
+    /// <see cref="SyncCompositeVariableIfStaleAsync"/>: re-reads <paramref name="name"/>'s formula
+    /// from its scope's manifest, builds the current sibling-value lookup, and resolves the formula
+    /// against it — throwing the same two domain exceptions either caller already documents
+    /// (<see cref="CompositeFormulaNotFoundException"/>/<see cref="CompositeCircularReferenceException"/>).
+    /// Returns the lookup alongside the result so <see cref="SyncCompositeVariableIfStaleAsync"/> can
+    /// read this item's own current value out of it at no extra GitHub-call cost.
+    /// </summary>
+    private async Task<(IReadOnlyDictionary<string, string> Lookup, CompositeResolutionResult Result)> ResolveFromManifestAsync(
+        string org, string? repo, string? env, string level, string name)
+    {
         var manifest = await compositeManifestService.GetManifestAsync(org, repo, env, level);
         if (!manifest.TryGetValue(name, out var formula))
         {
@@ -168,8 +209,7 @@ public sealed class ItemMutationService(
             throw new CompositeCircularReferenceException(result.CircularError ?? "Circular reference detected.");
         }
 
-        await actionsRestClient.UpdateVariableAsync(org, repo, env, level, name, name, result.ResolvedValue!);
-        return new SyncVariableResponse(result.ResolvedValue!, result.UnresolvedReferences);
+        return (lookup, result);
     }
 
     /// <summary>

@@ -354,6 +354,60 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
     }
 
     [Fact]
+    public async Task PostSyncAllVariables_ValidRequest_ReturnsPerTargetResults()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"CDN\":\"$(BASE_URL)/cdn\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""") // manifest read
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // organization lookup
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"BASE_URL","value":"https://new.example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""") // repository lookup — stale
+            .Enqueue(HttpStatusCode.NoContent, "{}"); // overwrite CDN in place
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/sync-all",
+            new SyncAllVariablesRequest([new SyncVariableRequest("octo-org", "widgets", null, "repository", "CDN")]));
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<SyncAllVariablesResponse>();
+        Assert.NotNull(body);
+        var result = Assert.Single(body!.Results);
+        Assert.True(result.Ok);
+        Assert.True(result.Synced);
+        Assert.Equal("https://new.example.com/cdn", result.ResolvedValue);
+    }
+
+    [Fact]
+    public async Task PostSyncAllVariables_MissingBearerToken_Returns401()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/sync-all",
+            new SyncAllVariablesRequest([new SyncVariableRequest("octo-org", "widgets", null, "repository", "CDN")]));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostSyncAllVariables_EmptyTargets_Returns400()
+    {
+        var client = AuthedClient(WithFakeGitHubClient(new FakeHttpMessageHandler()));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/sync-all", new SyncAllVariablesRequest([]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostSyncAllVariables_InvalidLevelInTarget_Returns400()
+    {
+        var client = AuthedClient(WithFakeGitHubClient(new FakeHttpMessageHandler()));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/sync-all",
+            new SyncAllVariablesRequest([new SyncVariableRequest("octo-org", "widgets", null, "not-a-level", "CDN")]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task ResolveVariable_ValidComposite_ReturnsResolvedValue_WritesNothing()
     {
         var handler = new FakeHttpMessageHandler()

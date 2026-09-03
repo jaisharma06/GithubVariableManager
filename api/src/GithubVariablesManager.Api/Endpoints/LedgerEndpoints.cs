@@ -249,6 +249,31 @@ public static class LedgerEndpoints
             .Produces<ErrorResponse>(400)
             .Produces<ErrorResponse>(401);
 
+        group.MapPost("/variables/sync-all", async (SyncAllVariablesRequest request, IBearerTokenAccessor tokenAccessor, SyncAllVariablesService syncAllVariablesService) =>
+        {
+            if (tokenAccessor.GetToken() is null)
+            {
+                return Results.Json(new ErrorResponse("Missing bearer token."), statusCode: 401);
+            }
+            if (request.Targets.Count == 0)
+            {
+                return Results.Json(new ErrorResponse("No targets provided."), statusCode: 400);
+            }
+            if (request.Targets.Any(t => !ValidLevels.Contains(t.Level)))
+            {
+                return Results.Json(new ErrorResponse("Invalid level."), statusCode: 400);
+            }
+
+            var results = await syncAllVariablesService.SyncAllAsync(request.Targets);
+            return Results.Ok(new SyncAllVariablesResponse(results));
+        })
+            .WithName("SyncAllVariables")
+            .WithTags("Ledger")
+            .WithSummary("Re-sync every composite variable across the currently-open scope in one batch call, skipping any already up to date; reports per-item outcome.")
+            .Produces<SyncAllVariablesResponse>(200)
+            .Produces<ErrorResponse>(400)
+            .Produces<ErrorResponse>(401);
+
         group.MapDelete("/variables", async (string org, string? repo, string? env, string level, string name, IBearerTokenAccessor tokenAccessor, ItemMutationService itemMutationService) =>
         {
             if (tokenAccessor.GetToken() is null)

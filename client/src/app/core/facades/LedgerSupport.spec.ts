@@ -2,7 +2,7 @@
 // TestBed needed — these are plain, DI-free functions, same testing shape this file's other
 // exports (SameScope, OptimisticVariable, …) would get if they had dedicated specs.
 import type { LedgerItem } from '../Types';
-import { ExtractReferences, FindDependents, IsCompositeValue } from './LedgerSupport';
+import { ExtractReferences, FindComposites, FindDependents, IsCompositeValue } from './LedgerSupport';
 
 function MakeVariable(name: string, value: string, scope: LedgerItem['scope'], level: LedgerItem['level'] = 'repository'): LedgerItem {
   return {
@@ -59,6 +59,37 @@ describe('ExtractReferences', () => {
 
   it('returns an empty array for a plain value', () => {
     expect(ExtractReferences('plain')).toEqual([]);
+  });
+});
+
+describe('FindComposites', () => {
+  const org = { org: 'octo-org' };
+  const repo = { org: 'octo-org', repo: 'widgets' };
+
+  it('returns every variable that has a formula', () => {
+    const items = [
+      MakeCompositeVariable('CDN', '$(BASE_URL)/cdn', repo, 'repository'),
+      MakeVariable('BASE_URL', 'https://example.com', org, 'organization'),
+      MakeCompositeVariable('API_BASE', '$(BASE_URL)/api', repo, 'repository'),
+    ];
+
+    expect(FindComposites(items).map((i) => i.name)).toEqual(['CDN', 'API_BASE']);
+  });
+
+  it('excludes secrets even if they somehow carried a formula field', () => {
+    const secret = { ...MakeVariable('TOKEN', '', repo, 'repository'), kind: 'secret' as const, formula: '$(X)' };
+
+    expect(FindComposites([secret])).toEqual([]);
+  });
+
+  it('returns an empty array when there are no composite variables', () => {
+    const items = [MakeVariable('PLAIN', 'just-a-value', org, 'organization')];
+
+    expect(FindComposites(items)).toEqual([]);
+  });
+
+  it('returns an empty array for an empty item list', () => {
+    expect(FindComposites([])).toEqual([]);
   });
 });
 

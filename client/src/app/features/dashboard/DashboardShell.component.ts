@@ -7,8 +7,9 @@ import { VariableClipboardService } from '../../core/services/VariableClipboardS
 import { EnvironmentsFacade } from '../../core/facades/EnvironmentsFacade';
 import { ItemMutationsFacade } from '../../core/facades/ItemMutationsFacade';
 import { LedgerFacade } from '../../core/facades/LedgerFacade';
-import { FindDependents } from '../../core/facades/LedgerSupport';
+import { FindComposites, FindDependents } from '../../core/facades/LedgerSupport';
 import { ScopesFacade } from '../../core/facades/ScopesFacade';
+import type { SyncAllTargetResult } from '../../core/gateways/ILedgerGateway';
 import type { ItemLevel, LedgerItem } from '../../core/Types';
 import type { DashboardScope } from '../../core/Types';
 import { AvatarComponent } from '../../shared/components/Avatar.component';
@@ -118,6 +119,16 @@ export class DashboardShellComponent {
   /** Sync (composite-variable support) — `LedgerFacade.syncVariable`, `POST /api/ledger/variables/sync`. Replaces the old "flatten to literal" action 1:1. */
   protected readonly syncTarget = signal<LedgerItem | null>(null);
   protected readonly syncError = signal<string | null>(null);
+  /**
+   * The global "Sync all" action — `LedgerFacade.syncAllVariables`, `POST /api/ledger/variables/sync-all`.
+   * `syncAllOpen` gates the whole flow (confirm step, then results step); `syncAllResult` being set
+   * is what switches the dialog from the confirm prompt to the three-bucket results view — null
+   * while still on the confirm step, non-null (even an empty array in principle) once the mutation
+   * has resolved.
+   */
+  protected readonly syncAllOpen = signal(false);
+  protected readonly syncAllResult = signal<SyncAllTargetResult[] | null>(null);
+  protected readonly syncAllError = signal<string | null>(null);
 
   // environmentsFacade/itemMutationsFacade themselves stay private (DI dependencies aren't part
   // of this component's template-facing API) — just their pending signals are re-exposed for the
@@ -141,6 +152,19 @@ export class DashboardShellComponent {
     const target = this.syncTarget();
     return target ? `Sync "${target.name}" to its current resolved value?` : '';
   });
+
+  /** Client-computed target list for "Sync all" — see `LedgerSupport.FindComposites`'s doc comment for why this isn't a server-side enumeration. */
+  protected readonly syncAllTargets = computed(() =>
+    FindComposites(this.ledgerItems()).map((item) => ({ scope: item.scope, level: item.level, name: item.name })),
+  );
+  protected readonly syncAllTitle = computed(() => {
+    const n = this.syncAllTargets().length;
+    return `Sync all ${n} composite variable${n === 1 ? '' : 's'}?`;
+  });
+  protected readonly syncAllPending = this.ledgerFacade.syncAllVariables.isPending;
+  protected readonly syncAllSynced = computed(() => (this.syncAllResult() ?? []).filter((r) => r.ok && r.synced));
+  protected readonly syncAllAlreadyCurrent = computed(() => (this.syncAllResult() ?? []).filter((r) => r.ok && !r.synced));
+  protected readonly syncAllFailed = computed(() => (this.syncAllResult() ?? []).filter((r) => !r.ok));
 
   constructor() {
     effect(() => {
@@ -251,6 +275,37 @@ export class DashboardShellComponent {
   protected HandleCancelSyncItem(): void {
     this.syncTarget.set(null);
     this.syncError.set(null);
+  }
+
+  protected HandleSyncAll(): void {
+    this.syncAllError.set(null);
+    this.syncAllResult.set(null);
+    this.syncAllOpen.set(true);
+  }
+
+  /**
+   * Runs the batch sync and switches this dialog from the confirm prompt to the results view —
+   * `syncAllOpen` stays true throughout so the dialog doesn't flash closed between the two steps.
+   */
+  protected async HandleConfirmSyncAll(): Promise<void> {
+    this.syncAllError.set(null);
+    try {
+      const results = await this.ledgerFacade.syncAllVariables.mutateAsync(this.syncAllTargets());
+      this.syncAllResult.set(results);
+    } catch (err) {
+      this.syncAllError.set(err instanceof Error ? err.message : 'GitHub rejected this request.');
+    }
+  }
+
+  protected HandleCloseSyncAll(): void {
+    this.syncAllOpen.set(false);
+    this.syncAllResult.set(null);
+    this.syncAllError.set(null);
+  }
+
+  /** Comma-joined names for one outcome bucket's summary line — mirrors `CopyEnvironmentDialogComponent`'s `result()!.copied.join(', ')` precedent for a plain string array; these results carry richer objects, so this collapses them to just the name first. */
+  protected SyncAllNames(results: SyncAllTargetResult[]): string {
+    return results.map((r) => r.target.name).join(', ');
   }
 
   protected HandleDisconnect(): void {

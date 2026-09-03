@@ -89,6 +89,7 @@ export function CreateFakeLedgerGateway(): jasmine.SpyObj<ILedgerGateway> {
     'CopyEnvironmentVariables',
     'ResolveVariable',
     'SyncVariable',
+    'SyncAllVariables',
   ]);
 }
 

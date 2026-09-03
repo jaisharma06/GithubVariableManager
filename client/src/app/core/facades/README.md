@@ -71,7 +71,14 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   invalidates `['ledger']`. Replaces what used to be a reuse of `ItemMutationsFacade.updateVariable`
   for this feature's original "flatten to literal" action — Sync is now its own dedicated call, not a
   disguised update-variable mutation, since the server (not the client) is the one that knows the
-  formula to recompute.
+  formula to recompute. A later, non-phase-numbered addition, the bulk complement to `syncVariable`
+  above: `syncAllVariables`, another real `injectMutation` field (`mutationFn` calling
+  `ILedgerGateway.SyncAllVariables`) — same reasoning as `syncVariable` for why it's a proper mutation
+  and not a bare passthrough (real `isPending`/error signals, no optimistic `onMutate` since every
+  resolved value depends on a fresh server-side read), `onSuccess` invalidates `['ledger']`. `targets`
+  is caller-supplied, not derived here — `LedgerComponent`/`DashboardShellComponent` compute the
+  target list client-side via `LedgerSupport.ts`'s `FindComposites` (see below) before calling this
+  mutation; this Facade stays a thin query/mutation wrapper, not an orchestration point.
 - **`ItemMutationsFacade.ts`** — six `injectMutation` fields: `createVariable`, `updateVariable`,
   `deleteVariable`, `putSecret`, `renameSecret`, `deleteSecret`. Each has `onMutate`/`onError` doing
   an optimistic patch of the ledger cache (via private `SnapshotLedger`/`RestoreLedger`/
@@ -146,7 +153,16 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   positive) — used by `DashboardShellComponent`/`CompareViewComponent` to warn "N other variables
   reference this" before a delete. Kept here as a free function (this file's existing
   `SameScope`/`OptimisticVariable` convention) rather than a Facade method, since it's a synchronous
-  scan over data the caller already has, not a query/mutation.
+  scan over data the caller already has, not a query/mutation. A later, non-phase-numbered addition,
+  the bulk complement to `FindDependents` above: `FindComposites(items)` — every composite variable in
+  an already-fetched ledger read (`item.kind === 'variable' && item.formula !== undefined`), the
+  client-computed target list behind the global "Sync all" action
+  (`LedgerComponent.hasComposites`/`DashboardShellComponent.HandleSyncAll` — see
+  `features/ledger/README.md`/`features/dashboard/README.md`). Deliberately client-computed rather
+  than server-enumerated: the client already has every composite item's `formula` from its last `GET
+  /api/ledger` read (populated server-side from each scope's hidden manifest), so re-deriving the same
+  list server-side would just be a second, redundant fan-out over data this component already has in
+  hand.
 - **`WorkflowsFacade.ts`** — `WorkflowsQuery(org, repo)`/`WorkflowRunsQuery(org, repo, workflowId)`/
   `WorkflowRunDetailQuery(org, repo, runId)` (methods, same reasoning as `ScopesFacade`/
   `EnvironmentsFacade` above); `deleteWorkflowRun`/`rerunWorkflowRun` are shared `injectMutation`

@@ -583,10 +583,39 @@ rather than silently left out of this file's narrative:
   clicking Sync just surfaces the server's circular error in the confirm dialog) — no more "only if
   `resolvedValue` is defined" gate, since that gate belonged to the old flatten-to-literal design.
 
-  **Sync is deliberately per-row only — no bulk "sync all."** This is a real, intentional scope
-  boundary of the current design, not an oversight — flag it if a bulk sync action gets requested
-  later; it would need its own backend endpoint/Service, following the same
-  target-list-plus-`Task.WhenAll` shape `CopyService`/`DeleteEverywhereService` already established.
+  **Sync all — the bulk complement to per-row Sync, a later, non-phase-numbered addition.** One
+  global "Sync all" button lives in `Ledger.component.html`'s toolbar (shown only when
+  `hasComposites()` — a `computed` over `LedgerSupport.FindComposites`, a pure filter over the
+  already-fetched ledger read for `item.kind === 'variable' && item.formula !== undefined`), hidden
+  entirely rather than disabled when the scope has no composite variables at all; staleness plays no
+  role in visibility, so a scope where every composite is already current shows the button and
+  produces a calm all-current outcome, not a hidden button. The target list is **client-computed, not
+  server-enumerated** — the client already has every composite item's `formula` from its last `GET
+  /api/ledger` read, so re-deriving the same list server-side would be a redundant second fan-out over
+  data already in hand. New endpoint `POST /api/ledger/variables/sync-all`
+  (`Contracts/LedgerContracts.cs`'s `SyncAllVariablesRequest`/`SyncAllTargetResult`/
+  `SyncAllVariablesResponse`, reusing `SyncVariableRequest` as the per-target shape, the same reuse
+  precedent `LedgerScopeTargetRequest` set for `CopyRequest`/`DeleteEverywhereRequest`) is served by a
+  new `api/Services/SyncAllVariablesService.cs`, sibling to `CopyService`/`DeleteEverywhereService` —
+  thin orchestration, `Task.WhenAll` over a new `ItemMutationService.SyncCompositeVariableIfStaleAsync`
+  per target (sharing a new private `ResolveFromManifestAsync` helper with the existing, unconditional
+  `SyncCompositeVariableAsync`: the two differ only in write contract — a user explicitly clicking Sync
+  on one row must still write even when already current, while a global batch sync skips writing to
+  every already-current item rather than issuing N no-op writes, reporting `Synced: false` for those
+  instead). One deliberate deviation from `CopyService`/`DeleteEverywhereService`'s precedent:
+  `SyncAllVariablesService` also catches `CompositeCircularReferenceException`/
+  `CompositeFormulaNotFoundException` per-target, not just `Octokit.ApiException` — unlike Copy/
+  Delete-everywhere where every target is the same simple write, those two domain exceptions are
+  routine, expected per-item outcomes in a bulk sync (a formula that went circular after a sibling
+  changed, or a target whose manifest entry no longer exists), not something that should abort the
+  whole batch. On `client/`: `DashboardShellComponent` owns the confirm dialog (the same routine,
+  non-destructive brand-hover tone as the per-row Sync dialog, not a danger tone) and a three-bucket
+  outcome view — synced / already up to date / failed — reusing `CopyEnvironmentDialog.component.html`'s
+  existing bucket styling (`border-ok/30`/`text-ok` for synced, a neutral `bg-panel-raised` card for
+  already-up-to-date, the existing failure-banner language for failed). New Gateway method
+  `ILedgerGateway.SyncAllVariables(targets)`, new Facade mutation `LedgerFacade.syncAllVariables` — a
+  real `injectMutation` like `syncVariable`, no optimistic `onMutate` for the same reason (a resolved
+  value can't be guessed client-side), `onSuccess` invalidates `['ledger']`.
 
   **Scope precedence mirrors GitHub Actions' real override chain** — environment > repository >
   organization — enforced by building the name→value lookup broadest-first and letting a

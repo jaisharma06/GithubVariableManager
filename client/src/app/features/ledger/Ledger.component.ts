@@ -1,5 +1,5 @@
 import { Component, computed, input, output, signal } from '@angular/core';
-import type { LedgerLockedSection, LedgerPartialError } from '../../core/facades/LedgerSupport';
+import { FindComposites, type LedgerLockedSection, type LedgerPartialError } from '../../core/facades/LedgerSupport';
 import type { GithubEnvironment, ItemKind, ItemLevel, LedgerItem } from '../../core/Types';
 import { ButtonComponent } from '../../shared/components/Button.component';
 import { FilterBarComponent } from './FilterBar.component';
@@ -98,9 +98,20 @@ export class LedgerComponent {
   readonly copyItem = output<LedgerItem>();
   readonly deleteItem = output<LedgerItem>();
   readonly syncItem = output<LedgerItem>();
+  /** The global "Sync all" action — re-syncs every composite variable across the currently-open ledger in one batch call. See `hasComposites` below for when the button that fires this is shown. */
+  readonly syncAll = output<void>();
 
   protected readonly rowGrid = ROW_GRID;
   protected readonly hideValues = signal(false);
+  /**
+   * Whether to show the "Sync all" button at all — hidden, not disabled, when there are no
+   * composite variables in scope, matching `SectionHeaderComponent.hasClipboard`'s established
+   * precedent for a conditionally-shown toolbar action. Deliberately keyed on compositeness
+   * existing at all, not on whether anything is currently stale — an all-already-current batch is a
+   * legitimate, calm no-op outcome, not a reason to hide the button (this also avoids the button
+   * flickering in and out as staleness changes turn-by-turn).
+   */
+  protected readonly hasComposites = computed(() => FindComposites(this.items()).length > 0);
 
   private readonly filtered = computed(() =>
     this.items().filter((item) => {

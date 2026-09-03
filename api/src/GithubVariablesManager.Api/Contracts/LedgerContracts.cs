@@ -60,6 +60,31 @@ public sealed record SyncVariableRequest(string Org, string? Repo, string? Env, 
 public sealed record SyncVariableResponse(string ResolvedValue, IReadOnlyList<string> UnresolvedReferences);
 
 /// <summary>
+/// Request for <c>POST /api/ledger/variables/sync-all</c> — one global "Sync all" action that
+/// re-syncs every composite variable across the currently-open ledger (org + repo + every
+/// environment) in one batch call. <c>Targets</c> is client-computed (see
+/// <c>client/src/app/core/facades/LedgerSupport.ts</c>'s <c>FindComposites</c>) from the already-
+/// fetched ledger data, not re-enumerated server-side from scratch — the client already knows
+/// which items are composite from its last <c>GET /api/ledger</c> read. Reuses
+/// <see cref="SyncVariableRequest"/> as the per-target shape, same reuse precedent as
+/// <see cref="LedgerScopeTargetRequest"/> being shared by <see cref="CopyRequest"/> and
+/// <see cref="DeleteEverywhereRequest"/>.
+/// </summary>
+public sealed record SyncAllVariablesRequest(IReadOnlyList<SyncVariableRequest> Targets);
+
+/// <summary>
+/// <see cref="Ok"/>/<see cref="Synced"/> are independent flags: <c>Ok:true,Synced:true</c> means
+/// resolved fresh and the value changed, so it was written; <c>Ok:true,Synced:false</c> means
+/// resolved fresh but already current, so the write was skipped; <see langword="false"/>
+/// <see cref="Ok"/> means a circular formula, a missing manifest entry, or a GitHub API error —
+/// <see cref="Message"/> is set in that case.
+/// </summary>
+public sealed record SyncAllTargetResult(
+    SyncVariableRequest Target, bool Ok, bool Synced, string? ResolvedValue, string? Message);
+
+public sealed record SyncAllVariablesResponse(IReadOnlyList<SyncAllTargetResult> Results);
+
+/// <summary>
 /// Preview-only request for <c>POST /api/ledger/variables/resolve</c> — never writes anything.
 /// <c>Name</c> is the variable's own name (its current name while editing, or the name being typed
 /// for a new variable) — seeded as the resolver's own recursion-stack frame so a direct

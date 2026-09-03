@@ -35,6 +35,9 @@
         }
         {{ hideValues() ? 'Values hidden' : 'Hide values' }}
       </button>
+      @if (hasComposites()) {
+        <app-button variant="secondary" size="sm" (click)="syncAll.emit()">Sync all</app-button>
+      }
       <app-button variant="primary" size="sm" (click)="add.emit()">+ Add</app-button>
     </div>
   </div>

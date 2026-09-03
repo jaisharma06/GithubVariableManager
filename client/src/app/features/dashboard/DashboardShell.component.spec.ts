@@ -35,6 +35,18 @@ const REPO_VARIABLE: LedgerItem = {
   updatedAt: '',
 };
 
+const COMPOSITE_VARIABLE: LedgerItem = {
+  id: 'variable:repository:acme-corp:widgets::CDN',
+  kind: 'variable',
+  level: 'repository',
+  scope: { org: 'acme-corp', repo: 'widgets' },
+  name: 'CDN',
+  value: 'https://example.com/cdn',
+  formula: '$(API_URL)/cdn',
+  createdAt: '',
+  updatedAt: '',
+};
+
 describe('DashboardShellComponent', () => {
   afterEach(() => ClearFakeSession());
 
@@ -234,6 +246,67 @@ describe('DashboardShellComponent', () => {
 
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('GitHub rejected this request.');
     expect(exportButton.textContent?.trim()).toBe('Export');
+  });
+
+  it('opens the "Sync all" confirmation with the composite count, and shows the three-bucket results view on confirm', async () => {
+    const { fixture, fakeLedgerGateway } = await CreateFixture(
+      { owner: 'acme-corp', repo: 'widgets' },
+      { variables: [REPO_VARIABLE, COMPOSITE_VARIABLE] },
+    );
+    await WaitFor(fixture, () => (fixture.nativeElement as HTMLElement).textContent?.includes('CDN') ?? false);
+
+    fakeLedgerGateway.SyncAllVariables.and.resolveTo([
+      { target: { scope: COMPOSITE_VARIABLE.scope, level: 'repository', name: 'CDN' }, ok: true, synced: true, resolvedValue: 'https://example.com/cdn' },
+    ]);
+
+    const syncAllButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(
+      (b) => b.textContent?.trim() === 'Sync all',
+    )!;
+    syncAllButton.click();
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Sync all 1 composite variable?');
+
+    const confirmButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(
+      (b) => b.textContent?.trim() === 'Sync all' && b.closest('app-confirm-dialog') !== null,
+    )!;
+    confirmButton.click();
+    await WaitFor(fixture, () => (fixture.nativeElement as HTMLElement).textContent?.includes('Sync results') ?? false);
+
+    expect(fakeLedgerGateway.SyncAllVariables).toHaveBeenCalledWith([{ scope: COMPOSITE_VARIABLE.scope, level: 'repository', name: 'CDN' }]);
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Synced 1 variable');
+    expect(text).toContain('CDN');
+  });
+
+  it('shows already-current and failed buckets separately from synced ones', async () => {
+    const { fixture, fakeLedgerGateway } = await CreateFixture(
+      { owner: 'acme-corp', repo: 'widgets' },
+      { variables: [REPO_VARIABLE, COMPOSITE_VARIABLE] },
+    );
+    await WaitFor(fixture, () => (fixture.nativeElement as HTMLElement).textContent?.includes('CDN') ?? false);
+
+    fakeLedgerGateway.SyncAllVariables.and.resolveTo([
+      { target: { scope: COMPOSITE_VARIABLE.scope, level: 'repository', name: 'CDN' }, ok: true, synced: false, resolvedValue: 'https://example.com/cdn' },
+      { target: { scope: COMPOSITE_VARIABLE.scope, level: 'repository', name: 'BROKEN' }, ok: false, synced: false, message: 'Circular reference detected.' },
+    ]);
+
+    const syncAllButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(
+      (b) => b.textContent?.trim() === 'Sync all',
+    )!;
+    syncAllButton.click();
+    fixture.detectChanges();
+
+    const confirmButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(
+      (b) => b.textContent?.trim() === 'Sync all' && b.closest('app-confirm-dialog') !== null,
+    )!;
+    confirmButton.click();
+    await WaitFor(fixture, () => (fixture.nativeElement as HTMLElement).textContent?.includes('Sync results') ?? false);
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Already up to date');
+    expect(text).toContain('1 failed');
+    expect(text).toContain('Circular reference detected.');
   });
 
   it('navigates to /connect when Disconnect is clicked', async () => {

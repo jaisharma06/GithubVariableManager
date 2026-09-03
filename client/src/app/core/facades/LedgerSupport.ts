@@ -111,3 +111,15 @@ export function FindDependents(items: LedgerItem[], name: string, scope: ScopeRe
       InScopeChain(item.scope, scope),
   );
 }
+
+/**
+ * Every composite variable in an already-fetched ledger read — the client-computed target list for
+ * the global "Sync all" action (`LedgerComponent.hasComposites`/`DashboardShellComponent.HandleSyncAll`).
+ * Deliberately client-computed rather than server-enumerated: the client already has every
+ * composite item's `formula` from its last `GET /api/ledger` read (populated server-side from each
+ * scope's hidden manifest), so re-deriving the same list server-side would just be a second,
+ * redundant fan-out over data this component already has in hand.
+ */
+export function FindComposites(items: LedgerItem[]): LedgerItem[] {
+  return items.filter((item) => item.kind === 'variable' && item.formula !== undefined);
+}

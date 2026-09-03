@@ -102,6 +102,10 @@ builder.Services.AddScoped<EnvironmentVariableCopyService>();
 builder.Services.AddScoped<CopyService>();
 builder.Services.AddScoped<DeleteEverywhereService>();
 
+// One global "Sync all" action — orchestration over ItemMutationService.SyncCompositeVariableIfStaleAsync,
+// same Scoped/Task.WhenAll shape as CopyService/DeleteEverywhereService above.
+builder.Services.AddScoped<SyncAllVariablesService>();
+
 // Ledger export (.xlsx download) — reuses LedgerService.GetLedgerAsync in-process, zero
 // duplicated fan-out/classification logic, via ClosedXML (MIT licensed; EPPlus's Polyform
 // Noncommercial license is a real risk for this project, and the npm xlsx package has known

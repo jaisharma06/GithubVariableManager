@@ -119,6 +119,7 @@
           (copyItem)="copyTarget.set($event)"
           (deleteItem)="deleteTarget.set($event)"
           (syncItem)="HandleSyncItem($event)"
+          (syncAll)="HandleSyncAll()"
         />
       }
     </main>
@@ -189,6 +190,75 @@
       <span class="font-mono text-text">{{ target.formula }}</span
       >. The formula itself stays saved — you can sync again anytime.
     </app-confirm-dialog>
+  }
+
+  @if (syncAllOpen()) {
+    @if (!syncAllResult()) {
+      <app-confirm-dialog
+        [title]="syncAllTitle()"
+        confirmLabel="Sync all"
+        confirmingLabel="Syncing…"
+        [error]="syncAllError()"
+        [confirming]="syncAllPending()"
+        (confirmed)="HandleConfirmSyncAll()"
+        (cancelled)="HandleCloseSyncAll()"
+      >
+        Recomputes and re-saves every composite variable across this scope against its current sibling values.
+        Already up-to-date ones are skipped. Formulas stay saved either way.
+      </app-confirm-dialog>
+    } @else {
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-[2px]"
+        role="presentation"
+        (click)="HandleCloseSyncAll()"
+      >
+        <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events -- same stopPropagation()-only role as CopyEnvironmentDialog.component.html's identical guard: keeps a click inside the panel from bubbling to the backdrop's dismiss handler above. -->
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          class="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-2xl shadow-black/10"
+          (click)="$event.stopPropagation()"
+        >
+          <div class="border-b border-line px-5 py-4">
+            <p class="font-mono text-xs uppercase tracking-widest text-brand">Sync all</p>
+            <h2 class="mt-1 font-display text-lg font-semibold text-text">Sync results</h2>
+          </div>
+
+          <div class="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+            @if (syncAllSynced().length > 0) {
+              <div class="rounded-md border border-ok/30 bg-panel-raised p-2.5">
+                <p class="text-xs font-medium text-ok">
+                  Synced {{ syncAllSynced().length }} variable{{ syncAllSynced().length === 1 ? '' : 's' }}
+                </p>
+                <p class="mt-1 break-all text-xs text-text-dim">{{ SyncAllNames(syncAllSynced()) }}</p>
+              </div>
+            }
+
+            @if (syncAllAlreadyCurrent().length > 0) {
+              <div class="rounded-md border border-line bg-ink/40 p-2.5">
+                <p class="text-xs font-medium text-text-dim">
+                  Already up to date — {{ syncAllAlreadyCurrent().length }} skipped
+                </p>
+                <p class="mt-1 break-all text-xs text-text-dim">{{ SyncAllNames(syncAllAlreadyCurrent()) }}</p>
+              </div>
+            }
+
+            @if (syncAllFailed().length > 0) {
+              <div class="space-y-1 rounded-md border border-danger/30 bg-danger-dim p-2.5">
+                <p class="text-xs font-medium text-danger">{{ syncAllFailed().length }} failed</p>
+                @for (r of syncAllFailed(); track r.target.name + '@' + r.target.scope.org + '/' + (r.target.scope.repo ?? '') + '/' + (r.target.scope.env ?? '')) {
+                  <p class="text-xs text-text-dim"><span class="text-danger">{{ r.target.name }}</span>: {{ r.message }}</p>
+                }
+              </div>
+            }
+          </div>
+
+          <div class="flex justify-end gap-2 border-t border-line px-5 py-4">
+            <app-button type="button" variant="ghost" (click)="HandleCloseSyncAll()">Close</app-button>
+          </div>
+        </div>
+      </div>
+    }
   }
 
   @if (editorState(); as ed) {

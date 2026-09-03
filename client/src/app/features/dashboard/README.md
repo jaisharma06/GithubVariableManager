@@ -55,6 +55,23 @@
   resolved value. `syncPending` is `ledgerFacade.syncVariable.isPending`. The confirm dialog's copy
   no longer warns the action "can't be recovered" — it says the formula stays saved and can be synced
   again anytime, since that's now true.
+  A later, non-phase-numbered addition, the bulk complement to that per-row Sync: `syncAllOpen`/
+  `syncAllResult`/`syncAllError` back a two-step flow (confirm, then results) for `LedgerComponent`'s
+  global `(syncAll)` output (see `features/ledger/README.md`'s `Ledger.component.ts`/`.html` entry for
+  `hasComposites`/when the button is shown). `syncAllTargets` is a `computed` over
+  `LedgerSupport.FindComposites(this.items())` — the client-computed target list, never
+  server-enumerated. `HandleSyncAll` opens the confirm dialog (`ConfirmDialogComponent`, the same
+  routine, non-destructive brand-hover tone as the single-item Sync dialog, not a danger tone);
+  `HandleConfirmSyncAll` calls `LedgerFacade.syncAllVariables.mutateAsync(this.syncAllTargets())`
+  (`POST /api/ledger/variables/sync-all`) and keeps `syncAllOpen` true throughout so the dialog
+  doesn't flash closed between the confirm and results steps. `syncAllPending` is
+  `ledgerFacade.syncAllVariables.isPending`. The results step shows **three** outcome buckets —
+  `syncAllSynced` (`ok && synced`), `syncAllAlreadyCurrent` (`ok && !synced`), and `syncAllFailed`
+  (`!ok`) — reusing `CopyEnvironmentDialog.component.html`'s existing bucket styling below: an
+  `border-ok/30`/`text-ok` success treatment for synced, a neutral `bg-panel-raised` card for
+  already-up-to-date (substituting where this app's palette has no `ok-dim` token), and the existing
+  `border-danger/30 bg-danger-dim` failure-banner language for failed, each listing the affected
+  variable names (`SyncAllNames`).
 - **`ScopeSidebar.component.ts`/`.html`** — org/repo header, environment list with per-environment
   rename/delete affordances, "+ New environment" inline form. Injects `EnvironmentsFacade` directly
   (not solely via `output()`) for the create-environment flow — documented in a comment on the

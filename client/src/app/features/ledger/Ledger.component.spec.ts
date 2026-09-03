@@ -142,6 +142,26 @@ describe('LedgerComponent', () => {
     expect(addToSectionSpy).toHaveBeenCalledWith({ level: 'repository', env: undefined });
   });
 
+  it('hides the "Sync all" button when there are no composite variables', async () => {
+    fixture = await CreateFixture();
+    const buttons = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>);
+    expect(buttons.some((b) => b.textContent?.trim() === 'Sync all')).toBe(false);
+  });
+
+  it('shows the "Sync all" button and emits syncAll when clicked, once a composite variable is in scope', async () => {
+    const compositeItem: LedgerItem = { ...REPO_VAR, id: 'variable:repository:acme-corp:widgets::CDN', name: 'CDN', formula: '$(API_URL)/cdn' };
+    fixture = await CreateFixture({ items: [REPO_VAR, compositeItem] });
+    const syncAllSpy = jasmine.createSpy('syncAll');
+    fixture.componentInstance.syncAll.subscribe(syncAllSpy);
+
+    const buttons = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>);
+    const syncAllButton = buttons.find((b) => b.textContent?.trim() === 'Sync all')!;
+    expect(syncAllButton).toBeTruthy();
+
+    syncAllButton.click();
+    expect(syncAllSpy).toHaveBeenCalled();
+  });
+
   it('propagates filtersChange from the FilterBar', async () => {
     fixture = await CreateFixture();
     const changeSpy = jasmine.createSpy('filtersChange');

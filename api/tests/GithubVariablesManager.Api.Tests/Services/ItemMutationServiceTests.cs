@@ -299,6 +299,66 @@ public class ItemMutationServiceTests
     }
 
     [Fact]
+    public async Task SyncCompositeVariableIfStaleAsync_StaleValue_WritesAndReportsSynced()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"CDN\":\"$(BASE_URL)/cdn\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""") // manifest read
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // organization lookup
+            .Enqueue(HttpStatusCode.OK, """{"total_count":2,"variables":[{"name":"BASE_URL","value":"https://new.example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"CDN","value":"https://old.example.com/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""") // repository lookup — BASE_URL changed since CDN's last sync
+            .Enqueue(HttpStatusCode.NoContent, "{}"); // overwrite CDN in place
+        var service = CreateService(handler);
+
+        var (synced, resolvedValue) = await service.SyncCompositeVariableIfStaleAsync("octo-org", "widgets", null, "repository", "CDN");
+
+        Assert.True(synced);
+        Assert.Equal("https://new.example.com/cdn", resolvedValue);
+        Assert.Equal(HttpMethod.Patch, handler.RequestedMethods[^1]);
+        Assert.EndsWith("/CDN", handler.RequestedPaths[^1]);
+    }
+
+    [Fact]
+    public async Task SyncCompositeVariableIfStaleAsync_AlreadyCurrent_SkipsWrite_ReportsNotSynced()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"CDN\":\"$(BASE_URL)/cdn\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""") // manifest read
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // organization lookup
+            .Enqueue(HttpStatusCode.OK, """{"total_count":2,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"CDN","value":"https://example.com/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}"""); // repository lookup — CDN already matches its resolved formula
+        var service = CreateService(handler);
+
+        var (synced, resolvedValue) = await service.SyncCompositeVariableIfStaleAsync("octo-org", "widgets", null, "repository", "CDN");
+
+        Assert.False(synced);
+        Assert.Equal("https://example.com/cdn", resolvedValue);
+        // No write — only the manifest read + the two lookup GETs happened.
+        Assert.Equal(3, handler.RequestedPaths.Count);
+        Assert.All(handler.RequestedMethods, m => Assert.Equal(HttpMethod.Get, m));
+    }
+
+    [Fact]
+    public async Task SyncCompositeVariableIfStaleAsync_CircularFormula_ThrowsCompositeCircularReferenceException()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"SELF\":\"$(SELF)\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""") // manifest read
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // organization lookup
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // repository lookup
+        var service = CreateService(handler);
+
+        await Assert.ThrowsAsync<CompositeCircularReferenceException>(() =>
+            service.SyncCompositeVariableIfStaleAsync("octo-org", "widgets", null, "repository", "SELF"));
+    }
+
+    [Fact]
+    public async Task SyncCompositeVariableIfStaleAsync_NameNotInManifest_ThrowsCompositeFormulaNotFoundException()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // manifest read — empty
+        var service = CreateService(handler);
+
+        await Assert.ThrowsAsync<CompositeFormulaNotFoundException>(() =>
+            service.SyncCompositeVariableIfStaleAsync("octo-org", "widgets", null, "repository", "PLAIN"));
+    }
+
+    [Fact]
     public async Task PutSecretAsync_SealsAgainstTheFetchedPublicKey_ThenPuts()
     {
         var keyPair = PublicKeyBox.GenerateKeyPair();

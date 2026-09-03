@@ -76,7 +76,17 @@ see `docs/Architecture.md`'s "Gateway/Adapter" pattern entry for the full ration
   `SyncVariableResponse`), also declared in this file. Unlike the old flatten action (which reused
   the existing update-variable mutation client-side), Sync is a dedicated call — the formula itself
   is untouched by it and stays saved for syncing again anytime, since it lives in the manifest, not
-  in the value being overwritten.
+  in the value being overwritten. A later, non-phase-numbered addition, the bulk complement:
+  `SyncAllVariables(targets)` — `POST /api/ledger/variables/sync-all`, one global "Sync all" action.
+  `targets` is caller-supplied (`LedgerComponent`/`DashboardShellComponent` compute it client-side via
+  `core/facades/LedgerSupport.ts`'s `FindComposites`, from the already-fetched ledger read) — this
+  Gateway just wires the request through, reusing `SyncVariableRequest`'s wire shape for each target,
+  mirroring `api/`'s `SyncAllVariablesRequest` reusing `SyncVariableRequest` the same way. Returns
+  `SyncAllTargetResult[]` (also declared in this file — `target`/`ok`/`synced`/`resolvedValue`/
+  `message`), mirroring `api/`'s `SyncAllTargetResult`: `ok`/`synced` are independent flags
+  (`ok:true,synced:true` means resolved fresh and written; `ok:true,synced:false` means resolved
+  fresh but already current, so the write was skipped; `ok:false` means a circular formula, a missing
+  manifest entry, or a GitHub API error, with `message` set).
 - `ISecretsGateway.ts` / `BackendSecretsGateway.service.ts` — talks to the `api/` ASP.NET Core
   backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`), not `api.github.com` (Phase 3b).
   Sends a secret's plaintext value directly — sealing (public-key fetch + libsodium sealed-box

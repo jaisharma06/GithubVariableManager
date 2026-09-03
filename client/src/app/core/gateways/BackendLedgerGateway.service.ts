@@ -12,7 +12,7 @@ import type {
 } from '../facades/CopySupport';
 import type { LedgerLockedSection, LedgerPartialError, LedgerResult } from '../facades/LedgerSupport';
 import { ItemId } from './GithubPathBuilder';
-import type { ILedgerGateway, ResolveVariableResult, SyncVariableResult } from './ILedgerGateway';
+import type { ILedgerGateway, ResolveVariableResult, SyncAllTargetResult, SyncVariableResult } from './ILedgerGateway';
 import type { PutSecretOptions } from './ISecretsGateway';
 
 interface LedgerItemResponse {
@@ -58,6 +58,23 @@ interface SyncVariableRequest {
 interface SyncVariableResponse {
   resolvedValue: string;
   unresolvedReferences: string[];
+}
+
+/** Reuses `SyncVariableRequest`'s wire shape for each target — mirrors `api/Contracts/LedgerContracts.cs`'s `SyncAllVariablesRequest` reusing `SyncVariableRequest`. */
+interface SyncAllVariablesRequest {
+  targets: SyncVariableRequest[];
+}
+
+interface SyncAllTargetResultResponse {
+  target: SyncVariableRequest;
+  ok: boolean;
+  synced: boolean;
+  resolvedValue: string | null;
+  message: string | null;
+}
+
+interface SyncAllVariablesResponse {
+  results: SyncAllTargetResultResponse[];
 }
 
 interface LedgerLockedSectionResponse {
@@ -268,6 +285,24 @@ export class BackendLedgerGateway implements ILedgerGateway {
     );
 
     return { resolvedValue: data.resolvedValue, unresolvedReferences: data.unresolvedReferences };
+  }
+
+  async SyncAllVariables(targets: { scope: ScopeRef; level: ItemLevel; name: string }[]): Promise<SyncAllTargetResult[]> {
+    const request: SyncAllVariablesRequest = {
+      targets: targets.map((t) => ({ org: t.scope.org, repo: t.scope.repo, env: t.scope.env, level: t.level, name: t.name })),
+    };
+
+    const data = await firstValueFrom(
+      this.http.post<SyncAllVariablesResponse>(`${environment.backendApiBaseUrl}/api/ledger/variables/sync-all`, request),
+    );
+
+    return data.results.map((r, i) => ({
+      target: targets[i],
+      ok: r.ok,
+      synced: r.synced,
+      resolvedValue: r.resolvedValue ?? undefined,
+      message: r.message ?? undefined,
+    }));
   }
 
   /**
