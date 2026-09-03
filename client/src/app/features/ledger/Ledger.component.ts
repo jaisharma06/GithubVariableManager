@@ -97,7 +97,7 @@ export class LedgerComponent {
   readonly editItem = output<LedgerItem>();
   readonly copyItem = output<LedgerItem>();
   readonly deleteItem = output<LedgerItem>();
-  readonly flattenItem = output<LedgerItem>();
+  readonly syncItem = output<LedgerItem>();
 
   protected readonly rowGrid = ROW_GRID;
   protected readonly hideValues = signal(false);

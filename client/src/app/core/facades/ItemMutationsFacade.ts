@@ -65,11 +65,15 @@ export class ItemMutationsFacade {
       this.UpdateLedgerItems((items) => [...items, OptimisticVariable(p.level, p.scope, p.name, p.value)]);
       return { snapshot };
     },
-    // Composite variables (`$(OtherVarName)` formulas) have their `resolvedValue`/
-    // `unresolvedReferences` computed server-side from every *other* variable in the ledger
-    // response — the optimistic patch above never sets those fields. Invalidate on success so any
-    // composite row that depends on this one picks up its freshly-resolved value on next refetch,
-    // mirroring EnvironmentsFacade's renameEnvironment/copyEnvironmentVariables.
+    // Composite variables (`$(OtherVarName)` formulas) have their `formula`/`resolvedValue`/
+    // `unresolvedReferences` computed server-side (the manifest lookup and the fresh resolve pass
+    // both happen in api/Services/LedgerService.cs) — the optimistic patch above never sets those
+    // fields. Invalidate on success so any composite row that depends on this one picks up its
+    // freshly-resolved value on next refetch, mirroring EnvironmentsFacade's
+    // renameEnvironment/copyEnvironmentVariables. The mutation's resolved value itself
+    // (`{manifestSynced, manifestSyncError}`, see `IVariablesGateway.CreateVariable`) flows back to
+    // whichever caller awaited `mutateAsync` — `ItemEditorPanelComponent` is the only current one
+    // that reads it, to show a warning banner on a manifest-sync failure.
     onSuccess: () => {
       this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },
@@ -94,7 +98,11 @@ export class ItemMutationsFacade {
       return { snapshot };
     },
     // See createVariable's onSuccess above — composite rows elsewhere in the ledger may resolve
-    // against this variable's new name/value.
+    // against this variable's new name/value. This also means the optimistic patch's `value: p.value`
+    // above can briefly show a composite's raw formula (what the user typed) in place of the real,
+    // already-resolved literal until this invalidate's refetch lands — a transient inaccuracy in the
+    // same spirit as `resolvedValue`/`formula` never being set optimistically, self-corrected the
+    // same way.
     onSuccess: () => {
       this.queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },

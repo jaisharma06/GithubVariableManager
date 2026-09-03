@@ -70,16 +70,30 @@ for why each layer stays single-purpose:
   value — see `Services/EnvironmentVariableCopyService` below for the full design, including why
   it's a sibling to `EnvironmentRenameService`/`CopyService` rather than an extension of either.
   Another later, non-phase-numbered addition, composite-variable support (Azure-App-Config-style
-  `$(OtherVarName)` formulas, variables only — see `Services/CompositeVariableResolver` below for the
-  full design): `POST /api/ledger/variables/resolve` is a new, preview-only route on this same group
-  (never writes anything — used by `client/`'s `ItemEditorPanelComponent` for live authoring
-  feedback), and the existing `POST`/`PATCH /api/ledger/variables` handlers gain a local
+  `$(OtherVarName)` formulas, variables only — see `Services/CompositeVariableResolver`/
+  `Services/CompositeManifestService` below for the full design, including the manifest-based
+  redesign that replaced this feature's original value-is-the-formula model): `POST
+  /api/ledger/variables/resolve` is a preview-only route on this same group (never writes
+  anything — used by `client/`'s `ItemEditorPanelComponent` for live authoring feedback), and the
+  existing `POST`/`PATCH /api/ledger/variables` handlers gain a local
   `catch (CompositeCircularReferenceException)` → `400`, the same local-catch-to-4xx shape
   `EnvironmentRenameValidationException` already established, since a circular formula never touches
-  GitHub in the first place. `GET /api/ledger` itself needed no route change — the new
-  `ResolvedValue`/`UnresolvedReferences` fields ride along inside the existing `LedgerItemResponse`
-  (see `Contracts/` below), populated by a post-fan-out pass inside `LedgerService.GetLedgerAsync`
-  (see `Services/` below).
+  GitHub in the first place — both handlers now return an `UpsertVariableResponse` body
+  (`ManifestSynced`/`ManifestSyncError`) reporting whether the best-effort composite-manifest update
+  that follows a successful variable write also succeeded, instead of a bare `200`. `POST
+  /api/ledger/variables/sync` is the manual Sync action (replacing the old "flatten to literal" 1:1
+  at the same UI trigger point, but now routine/non-destructive since the formula survives every
+  sync) — the client sends only the target's identity (`SyncVariableRequest`, no formula/value of
+  its own); the server re-reads the formula from its own scope's manifest and recomputes it against
+  current sibling values, catching `CompositeFormulaNotFoundException` → `400` (the name isn't
+  actually tracked as composite) alongside the existing `CompositeCircularReferenceException` → `400`
+  catch. Sync is deliberately per-row only here — there's no bulk "sync all" route, a real scope
+  boundary, not an oversight. `GET /api/ledger` itself needed no route change for either the original
+  feature or its manifest redesign — the composite fields ride along inside the existing
+  `LedgerItemResponse` (see `Contracts/` below), populated by a post-fan-out pass inside
+  `LedgerService.GetLedgerAsync` (see `Services/` below) that now reads no extra GitHub calls beyond
+  what that pass already fetched (the manifest variable rides along in the same
+  `ListVariablesAsync` response every scope's variables job makes).
   `RunnersEndpoints.cs` (the Runners vertical, live as
   of Phase 4) maps `GET /api/runners` — self-hosted runners for the dashboard's runners panel, with
   an optional `repo` query param covering both an org-only scope (omitted) and a repo scope
@@ -116,10 +130,17 @@ for why each layer stays single-purpose:
   `OAuthRelayException`-in-`DeviceFlowService.cs` precedent, when every fan-out job hits a genuine
   non-403/404 error). A later, non-phase-numbered addition: `LedgerService.GetLedgerAsync`'s result
   now runs through a private `ResolveComposites` post-fan-out pass (composite-variable support — see
-  `CompositeVariableResolver` below) before it's returned, populating `ResolvedValue`/
-  `UnresolvedReferences` on every composite variable using only the items already fetched in that
-  same request — no extra GitHub calls, and nothing kept "live" between reads, since the whole
-  response is recomputed fresh on every call. `EnvironmentsService` (`ListEnvironmentsAsync`, with its own local catch
+  `CompositeVariableResolver`/`CompositeManifestService` below) before it's returned. As of the
+  manifest-based redesign, compositeness is derived from a name being a key in its own scope's
+  manifest (`CompositeManifestService.ParseManifest`, parsed from the manifest variable each scope's
+  `VariablesJob` already fetches and filters out of the returned item list) — never from
+  regex-matching the item's `Value` the way the original design worked. `ResolveComposites`
+  populates `Formula` (the raw formula text from the manifest) and recomputes `ResolvedValue`/
+  `UnresolvedReferences` fresh against the other variables already fetched in that same request —
+  still no extra GitHub calls, and still nothing kept "live" between reads, since the whole response
+  is recomputed fresh on every call; `ResolvedValue` now doubles as a staleness signal (`Value !=
+  ResolvedValue` means a dependency changed since this item's last write/sync), since `Value` itself
+  is always already the resolved literal now, not the formula. `EnvironmentsService` (`ListEnvironmentsAsync`, with its own local catch
   turning a "no environments configured" 404 into an empty list rather than a locked section; gains
   `CreateEnvironmentAsync`/`DeleteEnvironmentAsync` thin pass-throughs in Phase 3c). `ItemMutationService`
   starts with the four variable write methods in Phase 3a and gains three secret write methods in
@@ -130,13 +151,34 @@ for why each layer stays single-purpose:
   reports `RenameSecretResponse.DeleteSucceeded: false` with GitHub's own error message rather than
   ever throwing/5xx-ing when only the delete step fails, since the backend can't make the two steps
   transactional and a 5xx would wrongly tell the client nothing changed). A later, non-phase-numbered
-  addition: `CreateVariableAsync`/`UpdateVariableAsync` now run a private
-  `ValidateNoCircularReferenceAsync` first (a no-op unless the value is actually composite), which
-  throws `CompositeCircularReferenceException` on a genuine cycle — caught locally in
-  `Endpoints/LedgerEndpoints.cs` and mapped to a `400` before anything touches GitHub. `UpsertVariableAsync`
-  (the Copy/replicate-to-environments write path) deliberately does **not** get this check — copying
-  a composite formula into a scope that's merely missing one of its referenced names is an explicitly
-  allowed, non-error outcome (see `CompositeVariableResolver` below). `SecretSealingService`
+  addition, since replaced by its own manifest-based redesign: `CreateVariableAsync`/
+  `UpdateVariableAsync` now run a private `ResolveForWriteAsync` first (a no-op unless the value is
+  actually composite), resolving the formula against the item's scope chain and throwing
+  `CompositeCircularReferenceException` on a genuine cycle — caught locally in
+  `Endpoints/LedgerEndpoints.cs` and mapped to a `400` before anything touches GitHub. **Unlike the
+  original design, the value actually written to GitHub is always the resolved literal, never the
+  raw formula** — the formula itself is tracked separately, best-effort, in the scope's hidden
+  manifest variable (`CompositeManifestService`, injected alongside `CompositeVariableResolver`) via
+  a private `SyncManifestEntryAsync` called *after* the variable write succeeds — this ordering is
+  deliberate: a manifest-write failure after a successful variable write still leaves a working,
+  correct literal on GitHub (recoverable by re-saving), while the reverse order would risk an
+  orphaned manifest entry for a variable that was never actually written. Both methods now return
+  `UpsertVariableResponse { ManifestSynced, ManifestSyncError }` reporting that best-effort step's
+  own outcome. `DeleteVariableAsync` does silent, best-effort manifest cleanup (a swallowed
+  `Octokit.ApiException` — lower stakes than a create/update manifest failure, since the worst case
+  is one inert dead JSON key vs. losing live formula-awareness for a variable that still exists). A
+  new method, `SyncCompositeVariableAsync` (`POST /api/ledger/variables/sync`'s handler), is the
+  manual recovery/refresh action replacing the old "flatten to literal" 1:1: re-reads the formula
+  from the scope's manifest (throwing `CompositeFormulaNotFoundException` if the name isn't actually
+  tracked), recomputes it fresh, and overwrites the real GitHub value — the manifest itself is
+  untouched, so the formula survives every sync. `UpsertVariableAsync`
+  (the Copy/replicate-to-environments write path) deliberately does **not** run the circular-check/
+  manifest-tracking logic at all — copying a composite's resolved literal into a scope that's merely
+  missing one of its referenced names is an explicitly allowed, non-error outcome, and a copy
+  destination deliberately does not get an auto-created manifest entry either, since repurposing a
+  copied value into a live formula at a new scope is an explicit re-authoring act, not an implicit
+  side effect of a value copy (see `CompositeVariableResolver`/`CompositeManifestService` below).
+  `SecretSealingService`
   (Phase 3b) is a new, narrow class: libsodium sealed-box encryption against a scope's public key,
   via `Sodium.Core` — kept separate from `ItemMutationService` the same way the old Angular
   `SecretSealingService.ts` was kept separate from `GithubSecretsGateway.service.ts` (crypto
@@ -266,18 +308,24 @@ for why each layer stays single-purpose:
   or a fork of it may be used — `ClosedXML` stays MIT throughout, matching the license posture of
   every other dependency already in this `.csproj` (`Octokit`, `Sodium.Core`,
   `Swashbuckle.AspNetCore`), so it was the only real choice, not a coin flip. A later,
-  non-phase-numbered addition: an additive "Resolved Value" column (composite-variable support — see
-  `CompositeVariableResolver` below) sits right after the existing "Value" column, populated only for
-  a composite variable row — the raw "Value" column itself is unchanged for every row, still the
-  literal stored formula, so a downloaded workbook shows both the formula and what it currently
-  resolves to side by side.
-  `CompositeVariableResolver` (a later, non-phase-numbered addition, `AddScoped`) owns every piece of
-  composite-variable logic (Azure-App-Config-style `$(OtherVarName)` formulas inside a GitHub Actions
-  **variable**'s value, never a secret) — kept a distinct, narrow class, not folded into
+  non-phase-numbered addition, updated again by the composite-variable manifest redesign: the
+  additive column sitting right after the existing "Value" column is now **"Formula"**, not
+  "Resolved Value" — populated only for a composite variable row (`item.Formula`, from the manifest).
+  The old "Resolved Value" column made sense when "Value" was the raw formula and "Resolved Value"
+  was the computed literal; now that "Value" is *always* the already-resolved literal, a
+  "Resolved Value" column would be near-redundant with it — the formula itself (available nowhere
+  else in the exported file) is the genuinely new information worth a column now.
+  `CompositeVariableResolver` (a later, non-phase-numbered addition, `AddScoped`) owns composite-
+  variable *resolution* mechanics (Azure-App-Config-style `$(OtherVarName)` formulas inside a GitHub
+  Actions **variable**'s value, never a secret) — kept a distinct, narrow class, not folded into
   `LedgerService`/`ItemMutationService`, the same rationale `SecretSealingService` is kept separate:
   a self-contained concern (regex-based `IsComposite`/`ExtractReferences`, recursion-stack cycle
   detection in `Resolve`, and two different ways of building a name→value lookup) that both a read
-  path and a write path need without either owning it. `IsComposite`/`ExtractReferences` are `static`
+  path and a write path need without either owning it. As of the manifest-based redesign, this class
+  no longer decides "is this composite" on its own — that's now `CompositeManifestService`'s
+  responsibility (see below); `IsComposite` is still used, but only for live-authoring-time detection
+  of what's currently typed into a value box before it's saved, not for deriving a fetched row's
+  compositeness. `IsComposite`/`ExtractReferences` are `static`
   (pure regex, no GitHub calls) and mirrored by hand in `client/`'s `core/facades/LedgerSupport.ts`
   (`IsCompositeValue`/`ExtractReferences`) for the exact same reason `CopyResult`/`CopyRequest` are
   kept as separate DTOs elsewhere in this codebase — a deliberate, explicit duplication rather than a
@@ -290,11 +338,27 @@ for why each layer stays single-purpose:
   a resolution needs to happen: `BuildLookupFromItems` (static, reuses an already-fetched in-memory
   `LedgerItemResponse` list — `LedgerService`'s read-time pass) and `BuildLookupAsync` (fresh, scoped
   `ActionsRestClient` calls at only the levels relevant to one item's own precedence chain — the
-  resolve-preview endpoint and `ItemMutationService`'s pre-write validation, neither of which has a
-  full ledger read handy). Both enforce GitHub Actions' real override precedence — environment >
-  repository > organization — the same way: adding levels broadest-first and letting a narrower-scope
-  entry of the same name overwrite it. Neither builder ever looks outside the single org/repo passed
-  in, so no cross-repo/cross-org reference is possible.
+  resolve-preview endpoint, `ItemMutationService`'s pre-write validation, and `SyncCompositeVariableAsync`,
+  none of which has a full ledger read handy). Both enforce GitHub Actions' real override precedence —
+  environment > repository > organization — the same way: adding levels broadest-first and letting a
+  narrower-scope entry of the same name overwrite it. Neither builder ever looks outside the single
+  org/repo passed in, so no cross-repo/cross-org reference is possible.
+  `CompositeManifestService` (added by the manifest-based redesign, `AddScoped`) owns the hidden
+  `__GHVM_COMPOSITE_MANIFEST__` manifest variable's read/write mechanics — one per scope
+  (organization/each repository/each environment), a `{ variableName: formula }` JSON map, never
+  shown as a normal ledger row. `ParseManifest` parses an already-fetched `ListVariablesAsync` result
+  with no GitHub call of its own (used by `LedgerService`'s read path, which already fetches this
+  exact list for every scope job) — missing or unparseable content degrades to an empty map, which is
+  also how a pre-existing old-model row (a plain `$(...)`-literal value with no manifest entry) now
+  reads as an ordinary plain variable, with no migration flow needed. `GetManifestAsync` is the fresh-
+  read variant for write-path callers that don't already have the scope's variable list in hand.
+  `ApplyAsync` is the sole write primitive: reads the current manifest, runs a caller-supplied
+  `Action<Dictionary<string, string>>` mutation against a copy, and issues a GitHub write only if the
+  map actually changed — an unnecessary write (e.g. removing a key that was never present) is a
+  deliberate no-op, not a wasted API call. Talks to `ActionsRestClient` directly rather than routing
+  through `ItemMutationService` — `ItemMutationService` is this service's own consumer, so routing
+  back through it would be circular. Kept SRP-separate from `CompositeVariableResolver`: that class
+  resolves a formula against a lookup; this class owns the manifest blob's read/write mechanics only.
 - `GitHub/` — Octokit-based outbound client wrapper(s). `GitHubClientFactory` builds an
   Octokit `IGitHubClient` credentialed with the current request's bearer token — the shared entry
   point every migration vertical's GitHub-calling code goes through. Its construction logic now
@@ -379,13 +443,27 @@ for why each layer stays single-purpose:
   than reusing `CopyRequest`/`CopyResponse` (see `Services/EnvironmentVariableCopyService` above for
   why the two operations aren't the same shape).
   Another later, non-phase-numbered addition to `LedgerContracts.cs`: composite-variable support
-  (see `Services/CompositeVariableResolver` above). `LedgerItemResponse` gains `ResolvedValue`/
-  `UnresolvedReferences`, both optional and populated only for a composite variable — every plain
-  value and every secret leaves them `null`. `ResolveVariableRequest`/`ResolveVariableResponse` are
-  the wire shapes for the new preview-only `POST /api/ledger/variables/resolve` route —
-  `ResolveVariableResponse` (`ResolvedValue`/`UnresolvedReferences`/`Circular`/`CircularError`) is
-  deliberately its own shape rather than reusing `LedgerItemResponse`, since a preview has no item
-  identity (name/level/scope) of its own to carry.
+  (see `Services/CompositeVariableResolver`/`Services/CompositeManifestService` above), since updated
+  again by that feature's own manifest-based redesign. `LedgerItemResponse` gains `Formula` (the raw
+  `$(NAME)` formula text, populated only when the item's name is a key in its own scope's manifest —
+  this is now the sole "is this composite" signal) alongside `ResolvedValue`/`UnresolvedReferences`
+  (`ResolvedValue` repurposed as a staleness signal, recomputed fresh every read against current
+  sibling values — `Value != ResolvedValue` means a dependency changed since this item's last
+  write/sync) — all three optional, `null`/empty for every plain value and every secret.
+  `ResolveVariableRequest`/`ResolveVariableResponse` are the wire shapes for the preview-only `POST
+  /api/ledger/variables/resolve` route — `ResolveVariableResponse`
+  (`ResolvedValue`/`UnresolvedReferences`/`Circular`/`CircularError`) is deliberately its own shape
+  rather than reusing `LedgerItemResponse`, since a preview has no item identity (name/level/scope)
+  of its own to carry. `UpsertVariableResponse` (`ManifestSynced`/`ManifestSyncError`) is what
+  `POST`/`PATCH /api/ledger/variables` now return instead of a bare `200` — mirrors the existing
+  `RenameSecretResponse` partial-outcome precedent; for the overwhelming majority of writes (plain,
+  non-composite values with no prior formula) this is always `(true, null)`.
+  `SyncVariableRequest`/`SyncVariableResponse` are the wire shapes for `POST
+  /api/ledger/variables/sync` (the manual Sync action, replacing the old "flatten to literal" 1:1) —
+  `SyncVariableRequest` deliberately carries no formula/value of its own (`Org`/`Repo`/`Env`/`Level`/
+  `Name` only), since the server looks the formula up from the manifest it already owns rather than
+  trusting a client-supplied one; `SyncVariableResponse` returns the freshly-resolved
+  `ResolvedValue`/`UnresolvedReferences`.
 
 ## Stateless by design
 

@@ -27,32 +27,35 @@
     } @else if (masked()) {
       <span class="tracking-widest text-text-dim">••••••••••••</span>
     } @else if (isComposite()) {
-      <!-- flex + min-w-0 (not inline-flex) so the resolved-value text truncates on its own inside this flex row instead of the whole row being hard-clipped by the parent cell's `truncate` — same nesting idiom WorkflowRunsList uses for its run-title cell. No separate "ƒ(x)" badge here: the resolved value itself is the primary thing to read at a glance, and the raw formula is still one hover away via the `title` on each branch below. -->
+      <!-- flex + min-w-0 (not inline-flex) so the value text truncates on its own inside this flex row instead of the whole row being hard-clipped by the parent cell's `truncate` — same nesting idiom WorkflowRunsList uses for its run-title cell. The real, already-resolved value (item().value) is the primary thing to read at a glance now; the raw formula is still one hover away via the `title` on the value span. -->
       <span class="flex min-w-0 items-center gap-1.5">
         @if (hasUnresolvedReferences()) {
           <span
-            class="flex min-w-0 items-center gap-1 text-danger"
-            [title]="'Formula: ' + item().value + ' — missing: ' + item().unresolvedReferences!.join(', ')"
+            class="shrink-0 text-danger"
+            [title]="'Formula: ' + item().formula + ' — missing: ' + item().unresolvedReferences!.join(', ')"
           >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              class="shrink-0"
-              aria-hidden="true"
-            >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
               <circle cx="12" cy="12" r="10" />
               <path d="M12 8v5M12 16h.01" />
             </svg>
-            <span class="truncate">{{ item().resolvedValue }}</span>
             <span class="sr-only">— broken reference, missing: {{ item().unresolvedReferences!.join(', ') }}</span>
           </span>
-        } @else {
-          <span class="min-w-0 truncate text-text" [title]="'Formula: ' + item().value">{{ item().resolvedValue }}</span>
         }
+        @if (isStale()) {
+          <!-- Non-color cue (a distinct pending-refresh glyph, not a danger-tinted one) — a stale composite isn't broken, it just hasn't been re-synced against a dependency that changed since. -->
+          <span
+            class="shrink-0 text-text-dim"
+            [title]="'Stale — the formula would resolve to \'' + item().resolvedValue + '\' now, but the saved value is still \'' + item().value + '\'. Click Sync to update.'"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path d="M12 8v4l2.5 2.5" />
+              <path d="M3.05 11a9 9 0 1 1 .5 4" />
+              <path d="M3 15v-4h4" />
+            </svg>
+            <span class="sr-only">— stale, a dependency changed since this was last synced</span>
+          </span>
+        }
+        <span class="min-w-0 truncate text-text" [title]="'Formula: ' + item().formula">{{ item().value }}</span>
       </span>
     } @else {
       <span class="text-text">{{ item().value }}</span>
@@ -92,18 +95,18 @@
         </svg>
       </button>
     }
-    @if (canFlatten()) {
-      <!-- Destructive to the formula (overwrites it with today's resolved literal) — confirmed via ConfirmDialogComponent one layer up, not fired directly from here. -->
+    @if (canSync()) {
+      <!-- Routine, non-destructive — the formula always survives a sync (it lives in the scope's manifest, untouched by this action), so this gets the same brand hover tone as "Copy to other scopes" below, not the danger tone an irreversible escape hatch would get. Still confirmed via ConfirmDialogComponent one layer up, not fired directly from here. -->
       <button
         type="button"
-        (click)="flattenItem.emit()"
-        title="Flatten to today's resolved value&hellip;"
-        aria-label="Flatten to today's resolved value"
-        class="rounded p-1 text-text-dim hover:text-danger"
+        (click)="syncItem.emit()"
+        title="Sync to today's resolved value"
+        aria-label="Sync to today's resolved value"
+        class="rounded p-1 text-text-dim hover:text-brand"
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <path d="M4 4v6h6M20 20v-6h-6" />
-          <path d="M4 10a8 8 0 0 1 14.5-4.5M20 14a8 8 0 0 1-14.5 4.5" />
+          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+          <path d="M21 3v6h-6" />
         </svg>
       </button>
     }

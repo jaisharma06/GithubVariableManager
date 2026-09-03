@@ -11,16 +11,21 @@ public sealed record LedgerItemResponse(
     string? Repo,
     string? Env,
     string Name,
-    string? Value,             // present only for variables; always null for secrets (write-only constraint)
+    string? Value,             // present only for variables; always null for secrets (write-only constraint). For a composite variable this is the real, already-resolved GitHub literal as of its last create/update/sync — never the raw formula.
     string? Visibility,        // secrets only, org-level ("all" | "private" | "selected") — populated for org-level secrets from GitHub's read response; unaffected by write orchestration
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    // Composite-variable display resolution (Services/CompositeVariableResolver.cs), populated by
-    // LedgerService's post-fan-out pass only when Value matches $(NAME) — null/empty for every
-    // plain (non-composite) item and for every secret. ResolvedValue is null when the formula is
-    // circular (surfaced instead via UnresolvedReferences staying empty and the item's raw Value
-    // itself being the only signal — see LedgerService.ResolveComposites for why a circular ledger
-    // item degrades to "can't resolve" rather than failing the whole read).
+    // Composite-variable manifest fields (Services/CompositeManifestService.cs /
+    // Services/CompositeVariableResolver.cs), populated by LedgerService's post-fan-out pass only
+    // when the item's name is a key in its own scope's manifest — null for every plain
+    // (non-composite) item and for every secret.
+    // Formula: the raw $(NAME) formula text as saved in the manifest — the source of "what to show/
+    // edit as the formula" now; Value no longer serves that role.
+    // ResolvedValue: recomputed fresh on every read against CURRENT sibling values (never cached) —
+    // repurposed as a staleness signal. ResolvedValue != Value means a dependency changed since this
+    // item's last sync, surfaced in the UI as "stale — click Sync". Null when the formula is
+    // currently circular.
+    string? Formula = null,
     string? ResolvedValue = null,
     IReadOnlyList<string>? UnresolvedReferences = null);
 
@@ -34,6 +39,25 @@ public sealed record LedgerResponse(
 
 public sealed record CreateVariableRequest(string Org, string? Repo, string? Env, string Level, string Name, string Value);
 public sealed record RenameVariableRequest(string Org, string? Repo, string? Env, string Level, string CurrentName, string NewName, string Value);
+
+/// <summary>
+/// Returned by <c>POST</c>/<c>PATCH /api/ledger/variables</c> — mirrors the existing
+/// <see cref="RenameSecretResponse"/> outcome-reporting precedent. The variable write itself always
+/// succeeds by the time this is returned (a failure there throws/propagates as usual); this only
+/// reports whether the best-effort manifest update that follows it (see
+/// <see cref="Services.CompositeManifestService"/>) also succeeded. For the overwhelming majority of
+/// writes (plain, non-composite values with no prior formula) this is always <c>(true, null)</c>.
+/// </summary>
+public sealed record UpsertVariableResponse(bool ManifestSynced, string? ManifestSyncError);
+
+/// <summary>
+/// Request for <c>POST /api/ledger/variables/sync</c> — re-reads a variable's formula from its
+/// scope's manifest and recomputes it against current sibling values, overwriting the real GitHub
+/// value in place. Deliberately carries no formula/value of its own — the server looks its formula
+/// up from the manifest it already owns, rather than trusting a client-supplied one.
+/// </summary>
+public sealed record SyncVariableRequest(string Org, string? Repo, string? Env, string Level, string Name);
+public sealed record SyncVariableResponse(string ResolvedValue, IReadOnlyList<string> UnresolvedReferences);
 
 /// <summary>
 /// Preview-only request for <c>POST /api/ledger/variables/resolve</c> — never writes anything.

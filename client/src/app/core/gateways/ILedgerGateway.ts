@@ -18,6 +18,12 @@ export interface ResolveVariableResult {
   circularError?: string;
 }
 
+/** Result of a manual Sync — see `SyncVariable` below. Mirrors `api/Contracts/LedgerContracts.cs`'s `SyncVariableResponse`. */
+export interface SyncVariableResult {
+  resolvedValue: string;
+  unresolvedReferences: string[];
+}
+
 /**
  * Talks to the `api/` ASP.NET Core backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`).
  * Started as purely the merged read (`GET /api/ledger`) — the variables + secrets + environment
@@ -62,6 +68,14 @@ export interface ILedgerGateway {
    * check as any longer cycle, matching `api/Services/CompositeVariableResolver.cs`'s design.
    */
   ResolveVariable(scope: ScopeRef, level: ItemLevel, name: string, value: string): Promise<ResolveVariableResult>;
+  /**
+   * Manual recovery/refresh action — `POST /api/ledger/variables/sync`. Replaces the old "flatten
+   * to literal" action 1:1: re-reads `name`'s formula from its scope's hidden manifest variable and
+   * recomputes it against current sibling values, overwriting the real GitHub value in place. The
+   * formula itself is untouched and stays saved for syncing again anytime — no `value`/`formula` is
+   * sent, the server looks it up from its own manifest.
+   */
+  SyncVariable(scope: ScopeRef, level: ItemLevel, name: string): Promise<SyncVariableResult>;
 }
 
 export const LEDGER_GATEWAY = new InjectionToken<ILedgerGateway>('LEDGER_GATEWAY');

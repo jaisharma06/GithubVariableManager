@@ -59,7 +59,19 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   preview-only composite-variable resolution (`POST /api/ledger/variables/resolve`) with no
   cache-worthy state; `ItemEditorPanelComponent`'s live-resolve preview owns its own
   `resolvePreview`/`resolvingPreview` signals rather than this Facade wrapping the call in an
-  `injectQuery`.
+  `injectQuery`. A further later addition, from the composite-variable feature's manifest-based
+  redesign: `syncVariable`, a real `injectMutation` field (`mutationFn` calling
+  `ILedgerGateway.SyncVariable`) — unlike `ExportLedger`/`ResolveVariable` above, Sync genuinely
+  writes GitHub state (`POST /api/ledger/variables/sync`, re-reading a variable's formula from its
+  scope's manifest and overwriting the real value with today's resolved literal), so callers need
+  real `isPending`/error signals the way `EnvironmentsFacade.renameEnvironment` and the batch-op
+  Facades already provide, not a bare `Promise`. No optimistic `onMutate` — the resolved value can't
+  be guessed client-side, since it depends on sibling values only the server has read fresh, the same
+  "collapse to one call, skip the optimistic patch" tradeoff those Facades already made; `onSuccess`
+  invalidates `['ledger']`. Replaces what used to be a reuse of `ItemMutationsFacade.updateVariable`
+  for this feature's original "flatten to literal" action — Sync is now its own dedicated call, not a
+  disguised update-variable mutation, since the server (not the client) is the one that knows the
+  formula to recompute.
 - **`ItemMutationsFacade.ts`** — six `injectMutation` fields: `createVariable`, `updateVariable`,
   `deleteVariable`, `putSecret`, `renameSecret`, `deleteSecret`. Each has `onMutate`/`onError` doing
   an optimistic patch of the ledger cache (via private `SnapshotLedger`/`RestoreLedger`/
@@ -78,7 +90,15 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   here only ever touches the mutated row itself — it never recomputes any *other* row's resolution.
   Without the `onSuccess` invalidation, saving/deleting a variable or secret left every composite
   row that referenced it stale until an unrelated event happened to trigger a refetch (30s
-  `staleTime` elapsing, window refocus, or a hard reload building a fresh `QueryClient`). (Phase 6
+  `staleTime` elapsing, window refocus, or a hard reload building a fresh `QueryClient`). A later
+  addition, from the composite-variable feature's manifest-based redesign: `createVariable`/
+  `updateVariable`'s `mutationFn` results widened from a bare success to `UpsertVariableResult`
+  (`manifestSynced`/`manifestSyncError` — mirrors `api/`'s `UpsertVariableResponse`), reporting
+  whether the best-effort composite-manifest update that follows a successful variable write also
+  succeeded; `ItemEditorPanelComponent` reads this to show a "saved, but formula-tracking failed"
+  warning (`manifestSyncWarning`, see `features/item-editor/README.md`) rather than the mutation
+  itself failing — the variable write always succeeds by the time this resolves, this only reports
+  the manifest step's own outcome. (Phase 6
   removed
   the seventh field, `upsertVariable` — it existed only for `CopyFacade.CopyTo`'s old client-side
   variable branch, which now calls `ILedgerGateway.Copy` directly instead; see the `CopyFacade.ts`
@@ -111,15 +131,22 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   duplicated rather than shared across the stack, since there's no code-sharing mechanism between
   `client/` and `api/` in this repo. Two separate `RegExp` instances back them (one without the
   global flag for `.test()`, one with it for `.matchAll()`) — a single global-flag regex would carry
-  `lastIndex` state between calls and silently break repeated `.test()` calls. `FindDependents(items,
+  `lastIndex` state between calls and silently break repeated `.test()` calls. As of the
+  composite-variable feature's manifest-based redesign, these two helpers are used only for
+  live-authoring-time detection of what's currently typed into a not-yet-saved value box
+  (`ItemEditorPanelComponent`'s resolve-preview trigger) and for `ExtractReferences(item.formula)`
+  inside `FindDependents` below — a *fetched* item's own compositeness is no longer derived by
+  matching these patterns against its value; it comes straight off `item.formula` (populated
+  server-side only when the item's name is a key in its own scope's manifest — see
+  `docs/Architecture.md`'s composite-variables section). `FindDependents(items,
   name, scope)` is a reverse-dependency scan over already-fetched ledger data: every variable whose
-  formula references `name` at `scope`, restricted by a private `InScopeChain` helper to items that
-  could actually *see* that name per the environment > repository > organization precedence chain
-  (so a same-named variable at an unrelated scope never shows up as a false positive) — used by
-  `DashboardShellComponent`/`CompareViewComponent` to warn "N other variables reference this" before
-  a delete. Kept here as a free function (this file's existing `SameScope`/`OptimisticVariable`
-  convention) rather than a Facade method, since it's a synchronous scan over data the caller already
-  has, not a query/mutation.
+  `formula` (not `value`) references `name` at `scope`, restricted by a private `InScopeChain` helper
+  to items that could actually *see* that name per the environment > repository > organization
+  precedence chain (so a same-named variable at an unrelated scope never shows up as a false
+  positive) — used by `DashboardShellComponent`/`CompareViewComponent` to warn "N other variables
+  reference this" before a delete. Kept here as a free function (this file's existing
+  `SameScope`/`OptimisticVariable` convention) rather than a Facade method, since it's a synchronous
+  scan over data the caller already has, not a query/mutation.
 - **`WorkflowsFacade.ts`** — `WorkflowsQuery(org, repo)`/`WorkflowRunsQuery(org, repo, workflowId)`/
   `WorkflowRunDetailQuery(org, repo, runId)` (methods, same reasoning as `ScopesFacade`/
   `EnvironmentsFacade` above); `deleteWorkflowRun`/`rerunWorkflowRun` are shared `injectMutation`

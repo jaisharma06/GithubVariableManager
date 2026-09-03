@@ -45,6 +45,23 @@
     at all (it's allowed to save, deliberately never blocked — see `docs/Architecture.md`'s
     composite-variables section). `ngOnDestroy` clears the debounce timer so a pending preview call
     never fires after the panel closes.
+  - A later addition on top of the above, from the composite-variable feature's manifest-based
+    redesign (see `docs/Architecture.md`'s composite-variables section for the full design): the
+    edit-flow seeding fix. Editing an existing composite variable seeds the value box from
+    `initial.formula` (the raw `$(...)` text tracked in the item's scope's manifest), **not**
+    `initial.value` — `initial.value` is now always the real, already-resolved GitHub literal for a
+    composite row, not the formula, so seeding from `value` the way a plain item does would silently
+    detach the row from its own formula on re-save (a resolved literal doesn't match the composite
+    regex, so a re-save would just write that literal back as an inert plain value, quietly losing
+    the manifest entry). The seeding falls back to `initial.value` when there's no `formula` (a plain
+    item) and to `initialValue()` (the clipboard-paste seed) only for a brand-new create. Also new: a
+    `manifestSyncWarning` signal/banner, shown after a create/update whose variable write succeeded
+    but whose best-effort composite-manifest update (`UpsertVariableResponse.ManifestSynced`) did
+    not — reuses the same warning-banner shape as `replicateFailures`/`renameDeleteWarning` above
+    rather than inventing new UI for a third kind of partial-failure outcome. This is a genuinely
+    different situation from a plain save failure: the variable itself is safely saved with a
+    working, correct literal value on GitHub — only the app's record of "this was a formula" failed
+    to update, recoverable by simply re-saving the same formula again.
 
   **Built with plain writable signals + manual `(input)`/`(change)` handlers, not Angular Reactive
   Forms.** Every other form-like component in this codebase (`ScopeSidebarComponent`'s

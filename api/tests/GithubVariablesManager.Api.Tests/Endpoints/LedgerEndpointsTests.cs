@@ -152,9 +152,11 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
     }
 
     [Fact]
-    public async Task PostVariable_ValidRequest_Creates()
+    public async Task PostVariable_ValidRequest_Creates_ReturnsManifestSyncedTrue()
     {
-        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.Created, "{}");
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.Created, "{}") // create the variable itself
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // best-effort manifest read (plain value -> no write follows)
         var client = AuthedClient(WithFakeGitHubClient(handler));
 
         var response = await client.PostAsJsonAsync("/api/ledger/variables",
@@ -162,6 +164,9 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
 
         response.EnsureSuccessStatusCode();
         Assert.StartsWith("/repos/octo-org/widgets/actions/variables", handler.RequestedPaths[0]);
+        var body = await response.Content.ReadFromJsonAsync<UpsertVariableResponse>();
+        Assert.NotNull(body);
+        Assert.True(body!.ManifestSynced);
     }
 
     [Fact]
@@ -199,9 +204,11 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
     }
 
     [Fact]
-    public async Task PatchVariable_ValidRequest_Renames()
+    public async Task PatchVariable_ValidRequest_Renames_ReturnsManifestSyncedTrue()
     {
-        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.NoContent, "{}");
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.NoContent, "{}") // rename+update
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // best-effort manifest read
         var client = AuthedClient(WithFakeGitHubClient(handler));
 
         var response = await client.PatchAsJsonAsync("/api/ledger/variables",
@@ -209,12 +216,17 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
 
         response.EnsureSuccessStatusCode();
         Assert.EndsWith("/OLD_NAME", handler.RequestedPaths[0]);
+        var body = await response.Content.ReadFromJsonAsync<UpsertVariableResponse>();
+        Assert.NotNull(body);
+        Assert.True(body!.ManifestSynced);
     }
 
     [Fact]
     public async Task DeleteVariable_ValidRequest_Deletes()
     {
-        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.NoContent, "{}");
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.NoContent, "{}") // delete the variable itself
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // best-effort manifest cleanup read
         var client = AuthedClient(WithFakeGitHubClient(handler));
 
         var response = await client.DeleteAsync(
@@ -265,6 +277,80 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
             new RenameVariableRequest("octo-org", "widgets", null, "repository", "OLD_NAME", "NEW_NAME", "$(NEW_NAME)"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostSyncVariable_ValidComposite_OverwritesInPlace_ReturnsResolvedValue()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"CDN\":\"$(BASE_URL)/cdn\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""") // manifest read
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""") // organization lookup
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""") // repository lookup
+            .Enqueue(HttpStatusCode.NoContent, "{}"); // overwrite CDN in place
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/sync",
+            new SyncVariableRequest("octo-org", "widgets", null, "repository", "CDN"));
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<SyncVariableResponse>();
+        Assert.NotNull(body);
+        Assert.Equal("https://example.com/cdn", body!.ResolvedValue);
+        Assert.Empty(body.UnresolvedReferences);
+        Assert.EndsWith("/CDN", handler.RequestedPaths[^1]);
+    }
+
+    [Fact]
+    public async Task PostSyncVariable_NameNotInManifest_Returns400()
+    {
+        var handler = new FakeHttpMessageHandler().Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/sync",
+            new SyncVariableRequest("octo-org", "widgets", null, "repository", "PLAIN"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("no saved formula", body);
+    }
+
+    [Fact]
+    public async Task PostSyncVariable_CircularFormula_Returns400()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"SELF\":\"$(SELF)\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""");
+        var client = AuthedClient(WithFakeGitHubClient(handler));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/sync",
+            new SyncVariableRequest("octo-org", "widgets", null, "repository", "SELF"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Circular reference", body);
+    }
+
+    [Fact]
+    public async Task PostSyncVariable_InvalidLevel_Returns400()
+    {
+        var client = AuthedClient(WithFakeGitHubClient(new FakeHttpMessageHandler()));
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/sync",
+            new SyncVariableRequest("octo-org", "widgets", null, "not-a-level", "CDN"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostSyncVariable_MissingBearerToken_Returns401()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/ledger/variables/sync",
+            new SyncVariableRequest("octo-org", "widgets", null, "repository", "CDN"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]

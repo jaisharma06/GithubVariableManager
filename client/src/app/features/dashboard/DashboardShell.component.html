@@ -118,7 +118,7 @@
           (editItem)="HandleEditItem($event)"
           (copyItem)="copyTarget.set($event)"
           (deleteItem)="deleteTarget.set($event)"
-          (flattenItem)="HandleFlattenItem($event)"
+          (syncItem)="HandleSyncItem($event)"
         />
       }
     </main>
@@ -175,19 +175,19 @@
     </app-confirm-dialog>
   }
 
-  @if (flattenTarget(); as target) {
+  @if (syncTarget(); as target) {
     <app-confirm-dialog
-      [title]="flattenTitle()"
-      confirmLabel="Flatten"
-      confirmingLabel="Flattening…"
-      [error]="flattenError()"
-      [confirming]="flattenPending()"
-      (confirmed)="HandleConfirmFlattenItem()"
-      (cancelled)="HandleCancelFlattenItem()"
+      [title]="syncTitle()"
+      confirmLabel="Sync"
+      confirmingLabel="Syncing…"
+      [error]="syncError()"
+      [confirming]="syncPending()"
+      (confirmed)="HandleConfirmSyncItem()"
+      (cancelled)="HandleCancelSyncItem()"
     >
-      This overwrites the formula <span class="font-mono text-text">{{ target.value }}</span> with today&rsquo;s
-      resolved value <span class="font-mono text-text">{{ target.resolvedValue }}</span>. The formula can&rsquo;t be
-      recovered afterward.
+      This overwrites the current value with today&rsquo;s freshly-resolved value, computed from the formula
+      <span class="font-mono text-text">{{ target.formula }}</span
+      >. The formula itself stays saved — you can sync again anytime.
     </app-confirm-dialog>
   }
 

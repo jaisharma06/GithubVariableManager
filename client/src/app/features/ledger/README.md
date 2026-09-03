@@ -23,19 +23,32 @@
   copy button above (which opens `CopyItemDialogComponent` to push a value out to N other scopes
   right now) — this one holds a value in the in-app clipboard buffer for a later paste anywhere,
   same-scope or not. Another later, non-phase-numbered addition: composite-variable
-  (`$(OtherVarName)`) display. `isComposite` (variables only, `LedgerSupport.IsCompositeValue`
-  against `item().value`) swaps in the resolved value — `item().resolvedValue`, populated
-  server-side by `LedgerService`'s read-time pass, not computed here — in place of the row's usual
-  value text, with the raw formula available in a `title` tooltip on hover (no separate badge: the
-  resolved value is the thing worth reading at a glance). `hasUnresolvedReferences` swaps in a warning icon + the still-otherwise-resolved
-  value when `item().unresolvedReferences` is non-empty — a broken reference stays visible in place
-  rather than disappearing, a confirmed product decision (see `docs/Architecture.md`). A new
-  `flattenItem` output (`canFlatten`: composite **and** `item().resolvedValue` is defined — nothing
-  to flatten to for a circular formula, so the action is hidden rather than offering a broken no-op)
-  fires an icon action that `DashboardShellComponent` catches to open a confirm dialog before
-  overwriting the formula with today's resolved literal (see `features/dashboard/README.md`) — the
-  actual mutation is the existing update-variable one, reused as-is; this component only emits the
-  intent.
+  (`$(OtherVarName)`) display, since updated again by that feature's own manifest-based redesign.
+  `isComposite` is now driven by `item().formula` being defined — populated server-side only when
+  the item's name is a key in its own scope's hidden manifest variable (`Formula`, not a regex match
+  against `item().value` the way the original design derived it; `item().value` is always the real,
+  already-resolved GitHub literal now, never the raw formula). The row shows the real `value` as its
+  main text (it's always a working literal now, not display-only), with the raw formula
+  (`item().formula`) available in a `title` tooltip on hover. `isStale` (new) is true when
+  `item().resolvedValue` is defined and differs from `item().value` — a non-color pending-refresh
+  glyph cue (deliberately not danger-tinted: a stale composite isn't broken, it just hasn't been
+  re-synced against a dependency that changed since its last write/sync), with a tooltip spelling out
+  both the stale saved value and what it would resolve to now, prompting "Click Sync to update."
+  `hasUnresolvedReferences` swaps in a warning icon + the still-otherwise-resolved value when
+  `item().unresolvedReferences` is non-empty — a broken reference stays visible in place rather than
+  disappearing, a confirmed product decision (see `docs/Architecture.md`); this is also how a
+  currently-circular formula surfaces, since `resolvedValue` is `null` in that case. A `syncItem`
+  output (renamed from this feature's original `flattenItem`; `canSync` is unconditionally available
+  for any composite item, including a currently-broken/circular one — no more "only if
+  `resolvedValue` is defined" gate, since that gate belonged to the old flatten-to-literal design,
+  where nothing existed to flatten *to* for a circular formula; clicking Sync on a circular formula
+  now just surfaces the server's circular error in the confirm dialog like any other sync failure)
+  fires an icon action that `DashboardShellComponent` catches to open a confirm dialog before calling
+  the new `LedgerFacade.syncVariable` mutation (`POST /api/ledger/variables/sync` — see
+  `features/dashboard/README.md`) — this component only emits the intent. Sync gets the same routine
+  brand hover tone as "Copy to other scopes," not a danger tone, since the formula always survives a
+  sync (it lives in the scope's manifest, untouched by this action) rather than being a one-way,
+  irreversible flatten.
 - **`FilterBar.component.ts`/`.html`** — level/kind pill filters, an environment `<select>`, and a
   name search box. Both pill groups (level, kind) are inlined in the template sharing one
   `PillClasses()` helper rather than a generic reusable "Pills" component — with only two call
@@ -47,8 +60,8 @@
   partial-errors banner, loading/error/empty states, and each group via `SectionHeaderComponent` +
   `LedgerRowComponent`. Forwards each group's `SectionHeaderComponent.pasteVariable` up as its own
   `pasteToSection: { level, env? }` output, so `DashboardShellComponent` knows which section to
-  pre-fill the create form for. Also bubbles `LedgerRowComponent.flattenItem` straight up as its own
-  `flattenItem` output (composite-variable support, see the `LedgerRow.component.ts`/`.html` entry
+  pre-fill the create form for. Also bubbles `LedgerRowComponent.syncItem` straight up as its own
+  `syncItem` output (composite-variable Sync action, see the `LedgerRow.component.ts`/`.html` entry
   above) — no shaping needed here, same pass-through as `editItem`/`copyItem`/`deleteItem`.
 - **`CopyItemDialog.component.ts`/`.html`** — push one variable/secret's value out to a batch of
   other scopes at once. `BuildCandidates` (every other scope in the org/repo that could receive a

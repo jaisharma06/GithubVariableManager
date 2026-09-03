@@ -12,7 +12,7 @@ import type {
 } from '../facades/CopySupport';
 import type { LedgerLockedSection, LedgerPartialError, LedgerResult } from '../facades/LedgerSupport';
 import { ItemId } from './GithubPathBuilder';
-import type { ILedgerGateway, ResolveVariableResult } from './ILedgerGateway';
+import type { ILedgerGateway, ResolveVariableResult, SyncVariableResult } from './ILedgerGateway';
 import type { PutSecretOptions } from './ISecretsGateway';
 
 interface LedgerItemResponse {
@@ -26,6 +26,7 @@ interface LedgerItemResponse {
   visibility: LedgerItem['visibility'] | null;
   createdAt: string;
   updatedAt: string;
+  formula: string | null;
   resolvedValue: string | null;
   unresolvedReferences: string[] | null;
 }
@@ -44,6 +45,19 @@ interface ResolveVariableResponse {
   unresolvedReferences: string[];
   circular: boolean;
   circularError: string | null;
+}
+
+interface SyncVariableRequest {
+  org: string;
+  repo?: string;
+  env?: string;
+  level: ItemLevel;
+  name: string;
+}
+
+interface SyncVariableResponse {
+  resolvedValue: string;
+  unresolvedReferences: string[];
 }
 
 interface LedgerLockedSectionResponse {
@@ -246,6 +260,16 @@ export class BackendLedgerGateway implements ILedgerGateway {
     };
   }
 
+  async SyncVariable(scope: ScopeRef, level: ItemLevel, name: string): Promise<SyncVariableResult> {
+    const request: SyncVariableRequest = { org: scope.org, repo: scope.repo, env: scope.env, level, name };
+
+    const data = await firstValueFrom(
+      this.http.post<SyncVariableResponse>(`${environment.backendApiBaseUrl}/api/ledger/variables/sync`, request),
+    );
+
+    return { resolvedValue: data.resolvedValue, unresolvedReferences: data.unresolvedReferences };
+  }
+
   /**
    * Parses the filename out of the response's `Content-Disposition` header. Falls back to
    * recomputing it locally, in the same format the server builds it in, so a header-parsing edge
@@ -276,6 +300,7 @@ export class BackendLedgerGateway implements ILedgerGateway {
       visibility: item.visibility ?? undefined,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
+      formula: item.formula ?? undefined,
       resolvedValue: item.resolvedValue ?? undefined,
       unresolvedReferences: item.unresolvedReferences ?? undefined,
     };

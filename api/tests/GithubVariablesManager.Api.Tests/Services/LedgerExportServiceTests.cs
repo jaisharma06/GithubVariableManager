@@ -38,14 +38,14 @@ public class LedgerExportServiceTests
         Assert.Equal("Name", sheet.Cell(1, 1).GetString());
         Assert.Equal("Kind", sheet.Cell(1, 2).GetString());
         Assert.Equal("Value", sheet.Cell(1, 3).GetString());
-        Assert.Equal("Resolved Value", sheet.Cell(1, 4).GetString());
+        Assert.Equal("Formula", sheet.Cell(1, 4).GetString());
         Assert.Equal("Visibility", sheet.Cell(1, 5).GetString());
 
         // Variable sorts before secret, matching Ledger.component.ts's GroupItems order.
         Assert.Equal("V1", sheet.Cell(2, 1).GetString());
         Assert.Equal("variable", sheet.Cell(2, 2).GetString());
         Assert.Equal("v", sheet.Cell(2, 3).GetString());
-        Assert.Equal("", sheet.Cell(2, 4).GetString()); // not composite -> Resolved Value blank
+        Assert.Equal("", sheet.Cell(2, 4).GetString()); // not composite -> Formula column blank
 
         Assert.Equal("S1", sheet.Cell(3, 1).GetString());
         Assert.Equal("secret", sheet.Cell(3, 2).GetString());
@@ -57,10 +57,12 @@ public class LedgerExportServiceTests
     }
 
     [Fact]
-    public async Task ExportAsync_CompositeVariable_ResolvedValueColumnPopulated_RawValueColumnUnchanged()
+    public async Task ExportAsync_CompositeVariable_FormulaColumnPopulated_ValueColumnIsTheResolvedLiteral()
     {
+        // CDN's real GitHub value is always the resolved literal now — the manifest (the hidden
+        // __GHVM_COMPOSITE_MANIFEST__ variable) is what carries the raw formula.
         var handler = new FakeHttpMessageHandler()
-            .Enqueue(HttpStatusCode.OK, """{"total_count":2,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"CDN","value":"$(BASE_URL)/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":3,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"CDN","value":"https://example.com/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"CDN\":\"$(BASE_URL)/cdn\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
             .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
         var service = CreateService(handler);
 
@@ -70,8 +72,11 @@ public class LedgerExportServiceTests
         var sheet = workbook.Worksheet("Organization");
         var cdnRow = Enumerable.Range(2, sheet.LastRowUsed()!.RowNumber() - 1).First(r => sheet.Cell(r, 1).GetString() == "CDN");
 
-        Assert.Equal("$(BASE_URL)/cdn", sheet.Cell(cdnRow, 3).GetString()); // raw formula, unchanged
-        Assert.Equal("https://example.com/cdn", sheet.Cell(cdnRow, 4).GetString()); // resolved literal
+        Assert.Equal("https://example.com/cdn", sheet.Cell(cdnRow, 3).GetString()); // real, already-resolved value
+        Assert.Equal("$(BASE_URL)/cdn", sheet.Cell(cdnRow, 4).GetString()); // raw formula, from the manifest
+
+        // The manifest variable itself is never a normal row.
+        Assert.DoesNotContain(Enumerable.Range(2, sheet.LastRowUsed()!.RowNumber() - 1), r => sheet.Cell(r, 1).GetString() == "__GHVM_COMPOSITE_MANIFEST__");
     }
 
     [Fact]

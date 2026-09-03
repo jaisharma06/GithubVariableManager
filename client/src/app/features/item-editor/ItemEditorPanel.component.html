@@ -234,10 +234,16 @@
           <p class="text-xs font-medium text-danger">{{ warning }}</p>
         </div>
       }
+
+      @if (manifestSyncWarning(); as warning) {
+        <div class="space-y-1 rounded-md border border-danger/30 bg-danger-dim p-2.5">
+          <p class="text-xs font-medium text-danger">{{ warning }}</p>
+        </div>
+      }
     </div>
 
     <div class="flex justify-end gap-2 border-t border-line px-5 py-4">
-      <app-button type="button" variant="ghost" (click)="closed.emit()">{{ replicateFailures() || renameDeleteWarning() ? 'Close' : 'Cancel' }}</app-button>
+      <app-button type="button" variant="ghost" (click)="closed.emit()">{{ replicateFailures() || renameDeleteWarning() || manifestSyncWarning() ? 'Close' : 'Cancel' }}</app-button>
       <app-button type="submit" variant="primary" [disabled]="submitBlocked()">
         {{ submitting() ? 'Saving…' : isEdit() ? 'Save changes' : 'Create' }}
       </app-button>

@@ -62,12 +62,18 @@ public sealed class LedgerService(
         var items = new List<LedgerItemResponse>();
         var partialErrors = new List<LedgerPartialErrorResponse>();
         var lockedSections = new List<LedgerLockedSectionResponse>();
+        var manifestsByScope = new Dictionary<ScopeKey, IReadOnlyDictionary<string, string>>();
 
         foreach (var result in results)
         {
             if (result.Items is not null) items.AddRange(result.Items);
             else if (result.LockedSection is not null) lockedSections.Add(result.LockedSection);
             else if (result.PartialError is not null) partialErrors.Add(result.PartialError);
+
+            if (result.Manifest is not null)
+            {
+                manifestsByScope[result.Manifest.Value.Key] = result.Manifest.Value.Manifest;
+            }
         }
 
         // Direct port of RunLedgerJobs' all-failed guard: only throws when *every* job hit a
@@ -78,32 +84,44 @@ public sealed class LedgerService(
             throw new LedgerUnavailableException(string.Join("; ", partialErrors.Select(e => $"{e.Label} — {e.Message}")));
         }
 
-        return new LedgerResponse(ResolveComposites(items), partialErrors, lockedSections);
+        return new LedgerResponse(ResolveComposites(items, manifestsByScope), partialErrors, lockedSections);
     }
 
     /// <summary>
     /// Read-time display resolution (automatic, default — see docs/Architecture.md's composite-
     /// variables section): every composite variable in this response is resolved fresh against the
     /// other variables already fetched in this same request, no extra GitHub calls. Recomputed on
-    /// every load, so there's nothing to keep "live" between reads. Non-composite items and every
-    /// secret pass through unchanged (their trailing ResolvedValue/UnresolvedReferences stay null).
+    /// every load, so there's nothing to keep "live" between reads. Manifest-driven now, not
+    /// value-pattern-driven: presence of an item's name as a key in its own scope's manifest is the
+    /// ONLY thing that makes it composite — <see cref="LedgerItemResponse.Value"/> (the real,
+    /// already-resolved GitHub literal) is never consulted for this anymore, only used as the
+    /// resolver's fallback lookup content for sibling references. Non-composite items and every
+    /// secret pass through unchanged (their trailing Formula/ResolvedValue/UnresolvedReferences stay
+    /// null).
     /// </summary>
-    private List<LedgerItemResponse> ResolveComposites(List<LedgerItemResponse> items)
+    private List<LedgerItemResponse> ResolveComposites(
+        List<LedgerItemResponse> items, IReadOnlyDictionary<ScopeKey, IReadOnlyDictionary<string, string>> manifestsByScope)
     {
         return items
             .Select(item =>
             {
-                if (item.Kind != "variable" || item.Value is null || !CompositeVariableResolver.IsComposite(item.Value))
+                if (item.Kind != "variable") return item;
+
+                var scopeKey = new ScopeKey(item.Level, item.Org, item.Repo, item.Env);
+                if (!manifestsByScope.TryGetValue(scopeKey, out var manifest) || !manifest.TryGetValue(item.Name, out var formula))
                 {
                     return item;
                 }
 
                 var lookup = CompositeVariableResolver.BuildLookupFromItems(items, item.Level, item.Org, item.Repo, item.Env);
-                var result = compositeVariableResolver.Resolve(item.Name, item.Value, lookup);
-                return item with { ResolvedValue = result.ResolvedValue, UnresolvedReferences = result.UnresolvedReferences };
+                var result = compositeVariableResolver.Resolve(item.Name, formula, lookup);
+                return item with { Formula = formula, ResolvedValue = result.ResolvedValue, UnresolvedReferences = result.UnresolvedReferences };
             })
             .ToList();
     }
+
+    /// <summary>Keys a scope's manifest map — one manifest per organization/repository/environment level, matching <see cref="CompositeVariableResolver"/>'s own scope-chain shape.</summary>
+    private sealed record ScopeKey(string Level, string Org, string? Repo, string? Env);
 
     /// <summary>
     /// Org-only scopes are always real orgs (enforced by the scope picker upstream); repo scopes
@@ -127,13 +145,24 @@ public sealed class LedgerService(
         }
     }
 
+    /// <summary>
+    /// The manifest variable rides along in this same <c>ListVariablesAsync</c> call every scope's
+    /// variables job already makes — no extra GitHub call to learn which names in this scope are
+    /// composite. Filtered out of the returned item list (it's never a normal row) and parsed
+    /// alongside via <see cref="CompositeManifestService.ParseManifest"/>.
+    /// </summary>
     private LedgerJob VariablesJob(string level, string scopeLabel, string org, string? repo, string? env) => new(
         level, "variable", scopeLabel, env,
         async () =>
         {
             var raw = await actionsRestClient.ListVariablesAsync(org, repo, env, level);
-            return raw.Select(v => new LedgerItemResponse(
-                "variable", level, org, repo, env, v.Name, v.Value, null, v.CreatedAt, v.UpdatedAt)).ToList();
+            var manifest = CompositeManifestService.ParseManifest(raw);
+            var items = raw
+                .Where(v => v.Name != CompositeManifestService.ManifestVariableName)
+                .Select(v => new LedgerItemResponse(
+                    "variable", level, org, repo, env, v.Name, v.Value, null, v.CreatedAt, v.UpdatedAt))
+                .ToList();
+            return new JobRunResult(items, (new ScopeKey(level, org, repo, env), manifest));
         });
 
     private LedgerJob SecretsJob(string level, string scopeLabel, string org, string? repo, string? env) => new(
@@ -141,8 +170,9 @@ public sealed class LedgerService(
         async () =>
         {
             var raw = await actionsRestClient.ListSecretsAsync(org, repo, env, level);
-            return raw.Select(s => new LedgerItemResponse(
+            var items = raw.Select(s => new LedgerItemResponse(
                 "secret", level, org, repo, env, s.Name, null, s.Visibility, s.CreatedAt, s.UpdatedAt)).ToList();
+            return new JobRunResult(items, null);
         });
 
     private static string JobLabel(LedgerJob job)
@@ -160,19 +190,25 @@ public sealed class LedgerService(
     {
         try
         {
-            var items = await job.Run();
-            return new JobResult(items, null, null);
+            var result = await job.Run();
+            return new JobResult(result.Items, null, null, result.Manifest);
         }
         catch (ApiException ex)
         {
             var classification = PermissionErrorClassifier.Classify((int)ex.StatusCode, ex.Message);
             return classification.Locked
-                ? new JobResult(null, new LedgerLockedSectionResponse(job.Level, job.Kind, job.ScopeLabel, job.Env), null)
-                : new JobResult(null, null, new LedgerPartialErrorResponse(JobLabel(job), ex.Message));
+                ? new JobResult(null, new LedgerLockedSectionResponse(job.Level, job.Kind, job.ScopeLabel, job.Env), null, null)
+                : new JobResult(null, null, new LedgerPartialErrorResponse(JobLabel(job), ex.Message), null);
         }
     }
 
-    private sealed record LedgerJob(string Level, string Kind, string ScopeLabel, string? Env, Func<Task<List<LedgerItemResponse>>> Run);
+    private sealed record LedgerJob(string Level, string Kind, string ScopeLabel, string? Env, Func<Task<JobRunResult>> Run);
 
-    private sealed record JobResult(List<LedgerItemResponse>? Items, LedgerLockedSectionResponse? LockedSection, LedgerPartialErrorResponse? PartialError);
+    private sealed record JobRunResult(List<LedgerItemResponse> Items, (ScopeKey Key, IReadOnlyDictionary<string, string> Manifest)? Manifest);
+
+    private sealed record JobResult(
+        List<LedgerItemResponse>? Items,
+        LedgerLockedSectionResponse? LockedSection,
+        LedgerPartialErrorResponse? PartialError,
+        (ScopeKey Key, IReadOnlyDictionary<string, string> Manifest)? Manifest);
 }

@@ -493,30 +493,100 @@ rather than silently left out of this file's narrative:
 
 - **Composite variables** — Azure-App-Config-style `$(OtherVarName)` formulas inside a GitHub
   Actions **variable**'s value (never a secret — see "Hard constraint that shapes the UI: secrets
-  are write-only" above). GitHub itself has no concept
-  of this: the stored value **is** the formula, byte-for-byte as typed, and "is composite" is always
-  *derived* by regex-matching `\$\([A-Za-z_][A-Za-z0-9_]*\)` against the value, never persisted as a
-  separate flag anywhere — consistent with this repo's "no server-side database, ever" rule, since
-  there's nothing here that could even be stored if the rule allowed it. All of this logic lives in
-  one narrow, new backend class, `api/Services/CompositeVariableResolver.cs`, kept separate from
-  `LedgerService`/`ItemMutationService` the same way `SecretSealingService` is — a self-contained
-  concern (regex + recursion-stack cycle detection + two different ways of building a name→value
-  lookup) both a read path and a write path need without either owning it.
+  are write-only" above). This is the **manifest-based redesign** of the feature — it replaced an
+  earlier design (documented here until it shipped) where the GitHub-stored value *was* the raw
+  formula, byte-for-byte, resolved only at read time for display; that design meant a composite
+  variable never worked in a real Actions workflow run unless the user took a manual, destructive
+  "flatten to literal" step first, since GitHub's own runners have no idea what `$(OtherVarName)`
+  means. **The current design's core rule: the GitHub-stored value is always a working, resolved
+  literal.** A composite variable's real GitHub value is ready for any real Actions run immediately,
+  with no manual step required. What used to be derived by regex-matching the value itself is now
+  tracked separately, in one hidden JSON "manifest" variable per scope (organization, each
+  repository, each environment) — `__GHVM_COMPOSITE_MANIFEST__`
+  (`api/Services/CompositeManifestService.CompositeManifestService.ManifestVariableName`), a
+  `{ variableName: formula }` map, never shown as a normal ledger row.
 
-  Two resolution points, each solving a different problem:
-  1. **Automatic read-time resolution** — every `GET /api/ledger` (and `GET /api/ledger/export`)
-     call re-resolves every composite variable fresh against the other variables already fetched in
-     that same request (`LedgerService.ResolveComposites`, a post-fan-out pass), with **no extra
-     GitHub calls**. `LedgerItemResponse` gains `ResolvedValue`/`UnresolvedReferences` — populated
-     only for a composite variable, always `null` for a plain value and for every secret. There is
-     nothing to keep "live" between reads; a referenced variable changing just changes what the next
-     read resolves to.
-  2. **Explicit opt-in "flatten to literal"** — a write that overwrites the GitHub-stored formula
-     with today's resolved literal, reusing the existing update-variable mutation as-is (no new
-     backend call). This is the *only* way a real Actions workflow run ever sees a working value,
-     since nothing in this app runs during an actual GitHub Actions run — GitHub's own runners have
-     no idea what `$(OtherVarName)` means, so an unflattened composite variable is purely a
-     display/authoring convenience in this app's UI, not something GitHub itself understands.
+  **Two narrow backend classes split the responsibility, deliberately kept separate (SRP)**:
+  - `api/Services/CompositeVariableResolver.cs` — resolution mechanics only: regex-matching
+    `\$\([A-Za-z_][A-Za-z0-9_]*\)` against formula text, recursion-stack cycle detection, and the
+    two name→value lookup builders (`BuildLookupFromItems`, reusing an already-fetched in-memory
+    ledger read; `BuildLookupAsync`, fresh scoped `ActionsRestClient` calls). It resolves a formula
+    against a lookup; it has no opinion on where a formula is stored.
+  - `api/Services/CompositeManifestService.cs` — the manifest blob's read/write mechanics only:
+    `GetManifestAsync`/`ParseManifest` parse a scope's manifest variable (missing or unparseable
+    content degrades to an empty map — **this is also how a pre-existing old-model row degrades
+    gracefully**: a literal `$(...)`-shaped value with no corresponding manifest entry just reads as
+    an ordinary plain variable now, no migration flow needed), and `ApplyAsync` is the sole write
+    primitive — reads the current manifest, runs a caller-supplied mutation, and writes back only if
+    the map actually changed. Kept separate from `CompositeVariableResolver` the same way
+    `SecretSealingService` is kept separate from `ItemMutationService` — a self-contained concern
+    neither a read path nor a write path should own outright.
+
+  **Read path — no extra GitHub calls.** The manifest variable rides along in the very same
+  `ListVariablesAsync` response every scope's variables job in `LedgerService.GetLedgerAsync`
+  already fetches; it's filtered out of the returned item list (never a normal row) and parsed
+  alongside via `CompositeManifestService.ParseManifest`. **Compositeness is now derived from
+  manifest presence, never from matching `$(...)` against the value** — the old regex-on-value
+  derivation is gone from the read path entirely (the resolver's `IsComposite`/`ExtractReferences`
+  regex helpers still exist and are still used, but only for live-authoring-time detection of what's
+  currently typed into a not-yet-saved value box, not for deciding what a *stored* row is).
+
+  **Field semantics on `LedgerItemResponse` (this is the part worth reading precisely)**:
+  - `Value` — always the real GitHub literal. For a composite variable, this is the resolved value
+    as of its last create/update/sync — never the raw formula.
+  - `Formula` (new field) — the raw `$(...)` text, populated only when the item's name is a key in
+    its own scope's manifest. This is now the *sole* "is this composite" signal, and what the editor
+    seeds from and what a row's tooltip shows — `Value` no longer serves that role.
+  - `ResolvedValue` — repurposed as a **staleness signal**. Recomputed fresh on every single read
+    against *current* sibling values (never cached, nothing kept "live" between reads); `Formula`'s
+    presence is what triggers this, then `CompositeVariableResolver.Resolve` recomputes it. `Value
+    != ResolvedValue` means a dependency's value changed since this item's last create/update/sync —
+    surfaced in `client/` as "stale — click Sync". This is also how a broken/circular dependency
+    chain surfaces now, with no separate mechanism: `ResolvedValue` is `null` only when the current
+    resolution is circular.
+  - `UnresolvedReferences` — unchanged mechanism: names the current resolution couldn't find,
+    computed by the same read-time pass.
+
+  **Write path (`ItemMutationService.CreateVariableAsync`/`UpdateVariableAsync`) — resolve
+  immediately, write order is deliberate.** A composite formula is resolved against the item's scope
+  chain before anything is written (throwing `CompositeCircularReferenceException` → a genuine `400`
+  on a genuine cycle, mirroring the `EnvironmentRenameValidationException` local-catch precedent). The
+  real variable is written **first**, with the resolved literal; the manifest update is attempted
+  **second**, best-effort. This order is deliberate, not incidental: if the manifest write fails
+  after the variable write already succeeded, the artifact that actually matters — a working,
+  correct literal on GitHub — already exists; the app merely "forgets" the formula, recoverable by
+  re-saving. The reverse order would risk an orphaned manifest entry claiming composite-ness for a
+  variable that was never actually written. Both methods now return `UpsertVariableResponse
+  { ManifestSynced, ManifestSyncError }` instead of a bare success, so `client/` can surface a
+  "saved, but formula-tracking failed" warning — mirroring the existing `RenameSecretResponse`
+  partial-outcome precedent. `DeleteVariableAsync` does **silent, best-effort** manifest cleanup
+  (a swallowed `Octokit.ApiException`) — lower stakes than a create/update manifest failure, since
+  the worst case is one inert dead JSON key nothing ever visits again, versus losing live
+  formula-awareness for a variable that still exists. Rename (`UpdateVariableAsync` with a changed
+  name) moves the manifest entry — removes the old-name key, sets/removes the new-name key — in the
+  same single `ApplyAsync` round trip.
+
+  **Sync — the manual recovery/refresh action, replacing "flatten to literal" 1:1 at the same UI
+  trigger point.** New endpoint `POST /api/ledger/variables/sync`
+  (`ItemMutationService.SyncCompositeVariableAsync`) — the client sends no formula/value of its own,
+  just the target's identity (`SyncVariableRequest`); the server looks the formula up from its own
+  scope's manifest (throwing `CompositeFormulaNotFoundException` → `400` if the name isn't actually
+  tracked as composite), recomputes it fresh against current sibling values, and overwrites the real
+  GitHub value in place. **Unlike the old "flatten to literal," this is routine and non-destructive,
+  not a one-time destructive escape hatch** — the formula survives every sync, since it lives in the
+  manifest, untouched by this action; a user can sync the same variable again anytime a dependency
+  changes. `client/`'s UI rename follows: "flatten to literal" → "Sync" everywhere (icon, copy, hover
+  tone — the confirm dialog now uses the same routine brand hover tone as "copy to other scopes"
+  rather than a danger tone, and the old "can't be recovered" warning language is gone, replaced with
+  "the formula stays saved — you can sync again anytime"). `LedgerRowComponent`'s `canSync` is
+  unconditionally available for any composite item (including a currently-broken/circular one —
+  clicking Sync just surfaces the server's circular error in the confirm dialog) — no more "only if
+  `resolvedValue` is defined" gate, since that gate belonged to the old flatten-to-literal design.
+
+  **Sync is deliberately per-row only — no bulk "sync all."** This is a real, intentional scope
+  boundary of the current design, not an oversight — flag it if a bulk sync action gets requested
+  later; it would need its own backend endpoint/Service, following the same
+  target-list-plus-`Task.WhenAll` shape `CopyService`/`DeleteEverywhereService` already established.
 
   **Scope precedence mirrors GitHub Actions' real override chain** — environment > repository >
   organization — enforced by building the name→value lookup broadest-first and letting a
@@ -524,16 +594,12 @@ rather than silently left out of this file's narrative:
   reference is possible: a lookup is only ever built from the single org/repo an item's own
   precedence chain belongs to.
 
-  **Circular references are hard-blocked**, everywhere a variable is created or renamed
-  (`ItemMutationService.CreateVariableAsync`/`UpdateVariableAsync` run a pre-write
-  `CompositeVariableResolver.Resolve` check via recursion-stack cycle detection, throwing
-  `CompositeCircularReferenceException` → a genuine `400`, mirroring the existing
-  `EnvironmentRenameValidationException` local-catch precedent). A direct self-reference
-  (`X = $(X)`) is just the degenerate one-frame case of the same check, not a separate special case.
-  `client/`'s `ItemEditorPanelComponent` also fast-checks this client-side (via a debounced,
-  preview-only `POST /api/ledger/variables/resolve` call) purely for snappier feedback — the
-  server-side check on submit is still the authoritative backstop, since a submit can race ahead of
-  the 400ms debounce.
+  **Circular references are hard-blocked** on create/rename (see write path above). A direct
+  self-reference (`X = $(X)`) is just the degenerate one-frame case of the same recursion-stack
+  check, not a separate special case. `client/`'s `ItemEditorPanelComponent` also fast-checks this
+  client-side (via a debounced, preview-only `POST /api/ledger/variables/resolve` call) purely for
+  snappier feedback — the server-side check on submit is still the authoritative backstop, since a
+  submit can race ahead of the 400ms debounce.
 
   **Unresolved (forward) references are deliberately allowed, not blocked** — a confirmed product
   decision: a composite formula can reference a variable that doesn't exist yet (or doesn't exist in
@@ -546,7 +612,11 @@ rather than silently left out of this file's narrative:
   `ItemMutationService.UpsertVariableAsync` (the replicate/copy write paths) deliberately skip the
   circular-reference pre-check entirely, unlike the strict create/rename paths above, since the
   destination just shows the reference as unresolved, the same non-error outcome as any other broken
-  reference.
+  reference. **A copy destination deliberately does NOT get an auto-created manifest entry** — copying
+  a value is not the same act as authoring a live formula at a new scope; repurposing a plain literal
+  into a tracked composite at the destination would be an implicit side effect a value copy shouldn't
+  have, so `UpsertVariableAsync` (used by `CopyService` and `EnvironmentRenameService`) stays
+  deliberately manifest-unaware.
 
   **Composites are variables-only in both directions** — a composite formula can never be authored
   in a secret's value (no composite UI renders for a secret row at all, consistent with "Hard
@@ -554,19 +624,30 @@ rather than silently left out of this file's narrative:
   either (`BuildLookupFromItems`/`BuildLookupAsync` only ever populate variable entries) — GitHub
   never returns a secret's value in the first place, so there would be nothing to substitute in.
 
-  **No code changes were needed in any bulk-operation Service** — Copy, Delete-everywhere,
-  cross-repo copy, and environment-variable-copy all treat every value as an opaque string already;
-  a composite formula copies/deletes exactly like any other string would, since none of those
-  Services ever needed to understand a value's contents.
+  **No code changes were needed in any bulk-operation Service** for the manifest redesign — Copy,
+  Delete-everywhere, cross-repo copy, and environment-variable-copy all still treat every value as an
+  opaque string; a composite variable's resolved literal copies/deletes exactly like any other string
+  would, since none of those Services ever needed to understand a value's contents or care about a
+  manifest.
 
-  New endpoint: `POST /api/ledger/variables/resolve` (`Endpoints/LedgerEndpoints.cs`) — preview-only,
-  never writes anything, used by `ItemEditorPanelComponent`'s live-authoring feedback as a formula is
-  typed. On `client/`: `core/facades/LedgerSupport.ts` gained `IsCompositeValue`/`ExtractReferences`
-  (kept in sync with the backend regex by hand, deliberately duplicated rather than shared across the
-  stack) and `FindDependents` — a reverse-dependency scan over already-fetched ledger data, honoring
-  the same scope-precedence reachability rule as the backend lookup builders, used to warn "N other
-  variables reference this" on both the single-item delete dialog (`DashboardShellComponent`) and the
+  New endpoints: `POST /api/ledger/variables/resolve` (`Endpoints/LedgerEndpoints.cs`) —
+  preview-only, never writes anything, used by `ItemEditorPanelComponent`'s live-authoring feedback
+  as a formula is typed. `POST /api/ledger/variables/sync` — the Sync action described above. On
+  `client/`: `core/facades/LedgerSupport.ts` still has `IsCompositeValue`/`ExtractReferences` (kept
+  in sync with the backend regex by hand, deliberately duplicated rather than shared across the
+  stack) — used for live-typing detection in the editor, not for deriving compositeness from a
+  fetched row's value anymore — and `FindDependents`, a reverse-dependency scan over already-fetched
+  ledger data (scanning each item's `formula` field, not its `value`), honoring the same
+  scope-precedence reachability rule as the backend lookup builders, used to warn "N other variables
+  reference this" on both the single-item delete dialog (`DashboardShellComponent`) and the
   delete-everywhere dialog (`CompareViewComponent`) before a referenced variable is removed.
+  `LedgerFacade` gained a `syncVariable` mutation (a real `injectMutation`, not a bare passthrough
+  like `ResolveVariable`, since Sync genuinely writes GitHub state and callers need real
+  pending/error signals) — no optimistic `onMutate`, since the resolved value can't be guessed
+  client-side. Excel export's "Resolved Value" column is now **"Formula"** — the old "Resolved
+  Value" column would be near-redundant with the now-always-literal "Value" column, whereas the raw
+  formula (available nowhere else in the exported file) is the genuinely new information worth a
+  column.
 
 ## History
 

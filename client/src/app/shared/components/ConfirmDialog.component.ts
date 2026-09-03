@@ -18,7 +18,7 @@ export class ConfirmDialogComponent implements AfterViewInit {
   readonly confirmLabel = input.required<string>();
   readonly error = input<string | null>(null);
   readonly confirming = input(false);
-  /** Label shown on the confirm button while `confirming` is true. Defaults to "Deleting…" since every call site until now was a delete; a non-delete confirm (e.g. the flatten-to-literal dialog) passes its own. */
+  /** Label shown on the confirm button while `confirming` is true. Defaults to "Deleting…" since every call site until now was a delete; a non-delete confirm (e.g. the composite-variable sync dialog) passes its own. */
   readonly confirmingLabel = input('Deleting…');
 
   // Past-tense, not `confirm`/`cancel` — `cancel` specifically collides with a real native DOM

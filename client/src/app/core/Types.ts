@@ -23,14 +23,25 @@ export interface LedgerItem {
   createdAt: string;
   updatedAt: string;
   /**
-   * Composite-variable display resolution (Azure-App-Config-style `$(OtherVarName)` formulas,
-   * variables only — never present on a secret). Populated server-side by every `GET /api/ledger`
-   * read (`api/Services/LedgerService.cs`'s post-fan-out pass) only when `value` matches
-   * `$(NAME)` — undefined for every plain, non-composite value. The GitHub-stored value (`value`
-   * above) is always the raw formula, unchanged; this is purely a read-time convenience.
+   * Composite-variable formula (Azure-App-Config-style `$(OtherVarName)` text, variables only —
+   * never present on a secret). Populated server-side by every `GET /api/ledger` read
+   * (`api/Services/LedgerService.cs`'s post-fan-out pass) only when this item's name is tracked in
+   * its scope's hidden manifest variable (`api/Services/CompositeManifestService.cs`) — undefined
+   * for every plain, non-composite variable. This is now the source of "what to show/edit as the
+   * formula" — `value` no longer serves that role: `value` is always the real, already-resolved
+   * GitHub literal (works immediately in any Actions workflow run), while `formula` is the raw
+   * `$(NAME)` text recoverable via Sync.
+   */
+  formula?: string;
+  /**
+   * `formula` resolved fresh against CURRENT sibling values on every read (never cached) —
+   * repurposed as a staleness signal now that `value` is always already-resolved: `resolvedValue !==
+   * value` means a dependency changed since this item's last create/update/sync, surfaced in the UI
+   * as "stale — click Sync". Also how a broken reference to another composite naturally surfaces,
+   * with no separate code path. Undefined for every plain, non-composite variable and every secret.
    */
   resolvedValue?: string;
-  /** Reference names inside `value` that don't currently exist anywhere in this item's scope chain — shown as a broken/unresolved indicator, not blocked at save time. */
+  /** Reference names inside `formula` that don't currently exist anywhere in this item's scope chain — shown as a broken/unresolved indicator, not blocked at save time. */
   unresolvedReferences?: string[];
 }
 

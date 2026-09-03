@@ -54,13 +54,16 @@ export interface LedgerResult {
 }
 
 // Composite-variable support (Azure-App-Config-style $(OtherVarName) formulas, variables only).
-// GitHub has no concept of this — the stored value IS the formula, and "is composite" is always
-// derived by matching this pattern rather than stored as a separate flag. Kept in sync with
-// api/Services/CompositeVariableResolver.cs's ReferencePattern (same regex, same "a GitHub Actions
-// variable name is letters/digits/underscore, must not start with a digit" rule). Two patterns —
-// one without the global flag for IsCompositeValue's .test(), one with it for ExtractReferences'
-// .matchAll() — a shared global-flag regex would carry lastIndex state between calls and silently
-// break repeated .test() calls.
+// GitHub has no concept of this. Under the manifest-based design, "is composite" for an already-
+// fetched LedgerItem is driven by item.formula being defined (populated server-side from the
+// item's scope's hidden manifest variable) — see FindDependents below. These patterns are only for
+// LIVE, client-side detection of what the user is currently typing into the value box while
+// authoring a formula (before it's ever saved), not for deriving compositeness from a fetched
+// item's value. Kept in sync with api/Services/CompositeVariableResolver.cs's ReferencePattern
+// (same regex, same "a GitHub Actions variable name is letters/digits/underscore, must not start
+// with a digit" rule). Two patterns — one without the global flag for IsCompositeValue's .test(),
+// one with it for ExtractReferences' .matchAll() — a shared global-flag regex would carry lastIndex
+// state between calls and silently break repeated .test() calls.
 const COMPOSITE_PATTERN = /\$\([A-Za-z_][A-Za-z0-9_]*\)/;
 const COMPOSITE_PATTERN_GLOBAL = /\$\(([A-Za-z_][A-Za-z0-9_]*)\)/g;
 
@@ -102,10 +105,9 @@ export function FindDependents(items: LedgerItem[], name: string, scope: ScopeRe
   return items.filter(
     (item) =>
       item.kind === 'variable' &&
-      item.value !== undefined &&
+      item.formula !== undefined &&
       !(item.name === name && SameScope(item.scope, scope)) &&
-      IsCompositeValue(item.value) &&
-      ExtractReferences(item.value).includes(name) &&
+      ExtractReferences(item.formula).includes(name) &&
       InScopeChain(item.scope, scope),
   );
 }

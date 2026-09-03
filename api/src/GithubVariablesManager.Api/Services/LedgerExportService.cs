@@ -111,7 +111,7 @@ public sealed class LedgerExportService(LedgerService ledgerService)
         sheet.Cell(1, 1).Value = "Name";
         sheet.Cell(1, 2).Value = "Kind";
         sheet.Cell(1, 3).Value = "Value";
-        sheet.Cell(1, 4).Value = "Resolved Value";
+        sheet.Cell(1, 4).Value = "Formula";
         sheet.Cell(1, 5).Value = "Visibility";
         sheet.Cell(1, 6).Value = "Created";
         sheet.Cell(1, 7).Value = "Updated";
@@ -128,10 +128,11 @@ public sealed class LedgerExportService(LedgerService ledgerService)
             sheet.Cell(row, 1).Value = item.Name;
             sheet.Cell(row, 2).Value = item.Kind;
             sheet.Cell(row, 3).Value = item.Kind == "secret" ? SecretValueMarker : item.Value ?? "";
-            // Additive column — the existing "Value" column above stays the raw formula unchanged
-            // for every composite row; this is populated only when LedgerService's read-time
-            // resolution pass actually produced one (composite variables only, never secrets).
-            sheet.Cell(row, 4).Value = item.ResolvedValue ?? "";
+            // Additive column — the "Value" column above is always the real, already-resolved
+            // GitHub literal now (even for a composite row); this carries the raw $(NAME) formula
+            // text instead, populated only when the item's name is tracked in its scope's manifest
+            // (composite variables only, never secrets) — see Services/CompositeManifestService.cs.
+            sheet.Cell(row, 4).Value = item.Formula ?? "";
             sheet.Cell(row, 5).Value = item.Visibility ?? "";
             // XLCellValue has no DateTimeOffset conversion — Excel dates carry no timezone
             // concept, so this converts to UTC DateTime first (CreatedAt/UpdatedAt are already

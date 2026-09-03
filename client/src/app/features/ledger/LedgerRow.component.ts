@@ -1,5 +1,4 @@
 import { Component, computed, inject, input, output } from '@angular/core';
-import { IsCompositeValue } from '../../core/facades/LedgerSupport';
 import { VariableClipboardService } from '../../core/services/VariableClipboardService';
 import type { LedgerItem } from '../../core/Types';
 
@@ -23,8 +22,8 @@ export class LedgerRowComponent {
   readonly editItem = output<void>();
   readonly copyItem = output<void>();
   readonly deleteItem = output<void>();
-  /** "Flatten to literal" — overwrites the stored formula with today's resolved value, via the existing update-variable mutation. Composite variables only; see Ledger.component.ts/DashboardShellComponent for the confirm-dialog + mutation this bubbles up to. */
-  readonly flattenItem = output<void>();
+  /** Sync — re-reads the formula from this scope's manifest and overwrites the real value with today's resolved literal, via `POST /api/ledger/variables/sync`. Composite variables only; see Ledger.component.ts/DashboardShellComponent for the confirm-dialog + mutation this bubbles up to. Replaces the old "flatten to literal" action 1:1 — the formula itself always survives a sync, it's never a one-way trip. */
+  readonly syncItem = output<void>();
 
   private readonly variableClipboardService = inject(VariableClipboardService);
 
@@ -34,15 +33,29 @@ export class LedgerRowComponent {
   protected readonly railClass = computed(() => (this.isSecret() ? 'bg-secret' : 'bg-variable'));
 
   /**
-   * Azure-App-Config-style `$(OtherVarName)` composite variable — GitHub has no concept of this,
-   * so "is composite" is always derived from the value itself, never a stored flag (see
-   * `api/Services/CompositeVariableResolver.cs`'s doc comment for the full design this mirrors).
-   * Variables only — a secret's value gets no composite UI at all.
+   * Manifest-driven now, not value-pattern-driven: presence of a formula (tracked server-side in
+   * this scope's hidden manifest variable, `api/Services/CompositeManifestService.cs`) is the ONLY
+   * thing that makes an item composite — `item().value` (the real, already-resolved GitHub literal)
+   * is never consulted for this anymore. Variables only — a secret's value gets no composite UI at all.
    */
-  protected readonly isComposite = computed(() => !this.isSecret() && this.item().value !== undefined && IsCompositeValue(this.item().value!));
+  protected readonly isComposite = computed(() => this.item().formula !== undefined);
   protected readonly hasUnresolvedReferences = computed(() => (this.item().unresolvedReferences?.length ?? 0) > 0);
-  /** Nothing to flatten to when the formula is circular (LedgerService's read-time pass leaves resolvedValue undefined in that case) — the flatten action is hidden rather than offering a broken no-op. */
-  protected readonly canFlatten = computed(() => this.isComposite() && this.item().resolvedValue !== undefined);
+  /**
+   * `resolvedValue` is recomputed fresh on every read against CURRENT sibling values — it differing
+   * from the real, already-stored `value` means a dependency changed since this item's last
+   * create/update/sync: the value shown is correct-as-of-last-sync, but stale relative to right now.
+   */
+  protected readonly isStale = computed(() => {
+    const item = this.item();
+    return this.isComposite() && item.resolvedValue !== undefined && item.resolvedValue !== item.value;
+  });
+  /**
+   * Unconditionally available for any composite — Sync is the routine recovery action now,
+   * including for a currently-broken/circular formula (clicking Sync just surfaces the server's
+   * existing circular error in the confirm dialog, same as any other sync failure). No more "only
+   * if resolvedValue is defined" gate — that gate belonged to the old flatten-to-literal design.
+   */
+  protected readonly canSync = computed(() => this.isComposite());
 
   /** Variable-only, mirroring CopyItemDialogComponent's rule that a secret's value can never be silently carried over. */
   protected HandleCopyValue(): void {

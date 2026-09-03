@@ -114,7 +114,7 @@ describe('ItemEditorPanelComponent', () => {
     fakeAsync(() => {
       fixture.componentRef.setInput('initial', null);
       fixture.detectChanges();
-      fakeVariablesGateway.CreateVariable.and.resolveTo();
+      fakeVariablesGateway.CreateVariable.and.resolveTo({ manifestSynced: true });
 
       const closedSpy = jasmine.createSpy('closed');
       fixture.componentInstance.closed.subscribe(closedSpy);
@@ -144,7 +144,7 @@ describe('ItemEditorPanelComponent', () => {
     fakeAsync(() => {
       fixture.componentRef.setInput('initial', EXISTING_VARIABLE);
       fixture.detectChanges();
-      fakeVariablesGateway.UpdateVariable.and.resolveTo();
+      fakeVariablesGateway.UpdateVariable.and.resolveTo({ manifestSynced: true });
 
       GetInput().value = 'API_URL_2';
       GetInput().dispatchEvent(new Event('input'));
@@ -182,7 +182,7 @@ describe('ItemEditorPanelComponent', () => {
       fixture.componentRef.setInput('initial', null);
       fixture.componentRef.setInput('items', []);
       fixture.detectChanges();
-      fakeVariablesGateway.CreateVariable.and.resolveTo();
+      fakeVariablesGateway.CreateVariable.and.resolveTo({ manifestSynced: true });
       fakeLedgerGateway.Copy.and.resolveTo([
         { target: { level: 'environment', scope: { org: 'acme-corp', repo: 'widgets', env: 'staging' } }, ok: true },
       ]);
@@ -292,7 +292,7 @@ describe('ItemEditorPanelComponent', () => {
         unresolvedReferences: ['NOT_YET_CREATED'],
         circular: false,
       });
-      fakeVariablesGateway.CreateVariable.and.resolveTo();
+      fakeVariablesGateway.CreateVariable.and.resolveTo({ manifestSynced: true });
 
       GetInput().value = 'CDN';
       GetInput().dispatchEvent(new Event('input'));
@@ -361,6 +361,48 @@ describe('ItemEditorPanelComponent', () => {
 
     expect(fakeLedgerGateway.ResolveVariable).not.toHaveBeenCalled();
   }));
+
+  it('seeds the value box from a composite variable\'s formula, not its resolved literal, when opened for edit', () => {
+    const existingComposite: LedgerItem = {
+      ...EXISTING_VARIABLE,
+      id: 'variable:repository:acme-corp:widgets::CDN',
+      name: 'CDN',
+      value: 'https://example.com/cdn',
+      formula: '$(BASE_URL)/cdn',
+    };
+    fixture.componentRef.setInput('initial', existingComposite);
+    fixture.detectChanges();
+
+    // Round-tripping the resolved literal back as "the value" would silently detach this variable
+    // from its formula on re-save (the literal doesn't match the composite regex, so the manifest
+    // entry would get removed) — see ItemEditorPanel.component.ts's ngOnInit doc comment.
+    expect(GetTextarea().value).toBe('$(BASE_URL)/cdn');
+  });
+
+  it(
+    'shows a warning banner, without closing, when the variable write succeeds but the manifest sync fails',
+    fakeAsync(() => {
+      fixture.componentRef.setInput('initial', null);
+      fixture.detectChanges();
+      fakeVariablesGateway.CreateVariable.and.resolveTo({ manifestSynced: false, manifestSyncError: 'Forbidden' });
+
+      const closedSpy = jasmine.createSpy('closed');
+      fixture.componentInstance.closed.subscribe(closedSpy);
+
+      GetInput().value = 'NEW_VAR';
+      GetInput().dispatchEvent(new Event('input'));
+      GetTextarea().value = 'hello';
+      GetTextarea().dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      Submit();
+      tick();
+      fixture.detectChanges();
+
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Forbidden');
+      expect(closedSpy).not.toHaveBeenCalled();
+    }),
+  );
 
   it('emits closed on Escape', () => {
     fixture.componentRef.setInput('initial', null);

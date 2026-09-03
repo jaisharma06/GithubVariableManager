@@ -96,15 +96,18 @@ describe('LedgerRowComponent', () => {
     expect(fixture.nativeElement.querySelector('[title="Copy value to clipboard"]')).toBeNull();
   });
 
+  // The real, already-resolved GitHub literal is always `value` now — `formula` (present only
+  // when the manifest tracks this name) is what makes an item composite, not a value-pattern match.
   const COMPOSITE_VARIABLE: LedgerItem = {
     ...VARIABLE,
     name: 'CDN',
-    value: '$(BASE_URL)/cdn',
+    value: 'https://example.com/cdn',
+    formula: '$(BASE_URL)/cdn',
     resolvedValue: 'https://example.com/cdn',
     unresolvedReferences: [],
   };
 
-  it('shows the resolved value for a composite variable, with the raw formula in a tooltip', async () => {
+  it('shows the real resolved value for a composite variable, with the raw formula in a tooltip', async () => {
     fixture = await CreateFixture(COMPOSITE_VARIABLE);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
@@ -122,27 +125,48 @@ describe('LedgerRowComponent', () => {
     expect(brokenEl).toBeTruthy();
   });
 
-  it('offers a "flatten to today\'s resolved value" action for a composite variable, and emits flattenItem when clicked', async () => {
-    fixture = await CreateFixture(COMPOSITE_VARIABLE);
-    const flattenSpy = jasmine.createSpy('flattenItem');
-    fixture.componentInstance.flattenItem.subscribe(flattenSpy);
+  it('shows a stale affordance when the freshly-resolved value no longer matches the stored value', async () => {
+    fixture = await CreateFixture({ ...COMPOSITE_VARIABLE, value: 'https://old.example.com/cdn', resolvedValue: 'https://example.com/cdn' });
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
-    const flattenButton = fixture.nativeElement.querySelector('[title^="Flatten to today\'s resolved value"]') as HTMLButtonElement;
-    expect(flattenButton).toBeTruthy();
-    flattenButton.click();
-
-    expect(flattenSpy).toHaveBeenCalled();
+    expect(text).toContain('https://old.example.com/cdn'); // the stored value stays the primary text
+    const staleEl = (fixture.nativeElement as HTMLElement).querySelector('[title^="Stale"]');
+    expect(staleEl).toBeTruthy();
   });
 
-  it('never offers the flatten action for a plain (non-composite) variable', async () => {
+  it('shows no stale affordance when the resolved value matches the stored value', async () => {
+    fixture = await CreateFixture(COMPOSITE_VARIABLE);
+
+    expect(fixture.nativeElement.querySelector('[title^="Stale"]')).toBeNull();
+  });
+
+  it('offers a "Sync" action for a composite variable, and emits syncItem when clicked', async () => {
+    fixture = await CreateFixture(COMPOSITE_VARIABLE);
+    const syncSpy = jasmine.createSpy('syncItem');
+    fixture.componentInstance.syncItem.subscribe(syncSpy);
+
+    const syncButton = fixture.nativeElement.querySelector('[title="Sync to today\'s resolved value"]') as HTMLButtonElement;
+    expect(syncButton).toBeTruthy();
+    syncButton.click();
+
+    expect(syncSpy).toHaveBeenCalled();
+  });
+
+  it('offers Sync even for a composite variable with no resolved value (a currently-broken/circular formula) — routine recovery, not gated', async () => {
+    fixture = await CreateFixture({ ...COMPOSITE_VARIABLE, resolvedValue: undefined, unresolvedReferences: undefined });
+
+    expect(fixture.nativeElement.querySelector('[title="Sync to today\'s resolved value"]')).toBeTruthy();
+  });
+
+  it('never offers the Sync action for a plain (non-composite) variable', async () => {
     fixture = await CreateFixture(VARIABLE);
 
-    expect(fixture.nativeElement.querySelector('[title^="Flatten to today\'s resolved value"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[title="Sync to today\'s resolved value"]')).toBeNull();
   });
 
-  it('never offers the flatten action for a secret row', async () => {
+  it('never offers the Sync action for a secret row', async () => {
     fixture = await CreateFixture(SECRET);
 
-    expect(fixture.nativeElement.querySelector('[title^="Flatten to today\'s resolved value"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[title="Sync to today\'s resolved value"]')).toBeNull();
   });
 });

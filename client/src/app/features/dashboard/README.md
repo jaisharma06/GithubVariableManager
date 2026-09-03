@@ -42,14 +42,19 @@
   composite variables reference the item about to be removed, listing each dependent's name + scope
   so a delete doesn't silently leave a formula pointing at nothing — the dialog still lets the delete
   proceed, since an unresolved reference is a deliberately allowed, non-blocking state everywhere in
-  this app (see `docs/Architecture.md`'s composite-variables section); (2) `flattenTarget`/
-  `flattenError` back a new confirm dialog for `LedgerRowComponent`'s "flatten to literal" action
-  (see `features/ledger/README.md`'s `LedgerRow.component.ts`/`.html` entry).
-  `HandleConfirmFlattenItem` overwrites the formula with today's `resolvedValue` by calling the
-  **existing** `ItemMutationsFacade.updateVariable` mutation as-is
-  (create-under-same-name-with-a-new-value) — no new backend call or Gateway method for this feature;
-  `flattenPending` is just that mutation's own `isPending` signal, re-exposed the same way
-  `deletePending`/others already are.
+  this app (see `docs/Architecture.md`'s composite-variables section); (2) `syncTarget`/`syncError`
+  back a confirm dialog for `LedgerRowComponent`'s **Sync** action (renamed from this feature's
+  original "flatten to literal" — same trigger point, but now a routine, non-destructive recovery
+  action rather than a one-way escape hatch, since the composite-variable manifest redesign means a
+  variable's formula survives every sync; see `features/ledger/README.md`'s
+  `LedgerRow.component.ts`/`.html` entry and `docs/Architecture.md`'s composite-variables section for
+  the full design). `HandleConfirmSyncItem` calls the **new** `LedgerFacade.syncVariable` mutation
+  (`POST /api/ledger/variables/sync`) — unlike the old flatten action, this is a dedicated backend
+  call, not a reuse of `ItemMutationsFacade.updateVariable`: the server re-reads the formula from its
+  own scope's manifest and recomputes it, rather than the client needing to already know/send a
+  resolved value. `syncPending` is `ledgerFacade.syncVariable.isPending`. The confirm dialog's copy
+  no longer warns the action "can't be recovered" — it says the formula stays saved and can be synced
+  again anytime, since that's now true.
 - **`ScopeSidebar.component.ts`/`.html`** — org/repo header, environment list with per-environment
   rename/delete affordances, "+ New environment" inline form. Injects `EnvironmentsFacade` directly
   (not solely via `output()`) for the create-environment flow — documented in a comment on the

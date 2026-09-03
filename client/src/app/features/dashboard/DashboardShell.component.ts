@@ -115,9 +115,9 @@ export class DashboardShellComponent {
   protected readonly deleteError = signal<string | null>(null);
   protected readonly exporting = signal(false);
   protected readonly exportError = signal<string | null>(null);
-  /** "Flatten to literal" (composite-variable support) — see ItemMutationsFacade.updateVariable, reused as-is; this feature adds no new backend call. */
-  protected readonly flattenTarget = signal<LedgerItem | null>(null);
-  protected readonly flattenError = signal<string | null>(null);
+  /** Sync (composite-variable support) — `LedgerFacade.syncVariable`, `POST /api/ledger/variables/sync`. Replaces the old "flatten to literal" action 1:1. */
+  protected readonly syncTarget = signal<LedgerItem | null>(null);
+  protected readonly syncError = signal<string | null>(null);
 
   // environmentsFacade/itemMutationsFacade themselves stay private (DI dependencies aren't part
   // of this component's template-facing API) — just their pending signals are re-exposed for the
@@ -136,10 +136,10 @@ export class DashboardShellComponent {
     const target = this.deleteTarget();
     return target ? FindDependents(this.ledgerItems(), target.name, target.scope) : [];
   });
-  protected readonly flattenPending = this.itemMutationsFacade.updateVariable.isPending;
-  protected readonly flattenTitle = computed(() => {
-    const target = this.flattenTarget();
-    return target ? `Flatten "${target.name}" to its resolved value?` : '';
+  protected readonly syncPending = this.ledgerFacade.syncVariable.isPending;
+  protected readonly syncTitle = computed(() => {
+    const target = this.syncTarget();
+    return target ? `Sync "${target.name}" to its current resolved value?` : '';
   });
 
   constructor() {
@@ -224,38 +224,33 @@ export class DashboardShellComponent {
     return item.level === 'environment' ? `environment: ${item.scope.env}` : item.level;
   }
 
-  protected HandleFlattenItem(item: LedgerItem): void {
-    this.flattenError.set(null);
-    this.flattenTarget.set(item);
+  protected HandleSyncItem(item: LedgerItem): void {
+    this.syncError.set(null);
+    this.syncTarget.set(item);
   }
 
   /**
-   * Overwrites the stored formula with today's resolved literal value — reuses the existing
-   * update-variable mutation as-is (create-under-same-name-with-a-new-value), no new backend call.
-   * Destructive to the formula, which is why this sits behind ConfirmDialogComponent rather than
-   * firing straight from LedgerRowComponent's icon click.
+   * Re-reads the formula from this item's scope manifest and recomputes it against current sibling
+   * values, overwriting the real GitHub value in place — `POST /api/ledger/variables/sync`. No
+   * `resolvedValue` needed client-side at all anymore; the server looks the formula up itself.
+   * Still sits behind ConfirmDialogComponent (a routine but real write), not fired straight from
+   * LedgerRowComponent's icon click.
    */
-  protected async HandleConfirmFlattenItem(): Promise<void> {
-    const target = this.flattenTarget();
-    if (!target?.resolvedValue) return;
-    this.flattenError.set(null);
+  protected async HandleConfirmSyncItem(): Promise<void> {
+    const target = this.syncTarget();
+    if (!target) return;
+    this.syncError.set(null);
     try {
-      await this.itemMutationsFacade.updateVariable.mutateAsync({
-        scope: target.scope,
-        level: target.level,
-        currentName: target.name,
-        newName: target.name,
-        value: target.resolvedValue,
-      });
-      this.flattenTarget.set(null);
+      await this.ledgerFacade.syncVariable.mutateAsync({ scope: target.scope, level: target.level, name: target.name });
+      this.syncTarget.set(null);
     } catch (err) {
-      this.flattenError.set(err instanceof Error ? err.message : 'GitHub rejected this request.');
+      this.syncError.set(err instanceof Error ? err.message : 'GitHub rejected this request.');
     }
   }
 
-  protected HandleCancelFlattenItem(): void {
-    this.flattenTarget.set(null);
-    this.flattenError.set(null);
+  protected HandleCancelSyncItem(): void {
+    this.syncTarget.set(null);
+    this.syncError.set(null);
   }
 
   protected HandleDisconnect(): void {

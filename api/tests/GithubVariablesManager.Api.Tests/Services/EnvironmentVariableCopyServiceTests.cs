@@ -9,7 +9,7 @@ public class EnvironmentVariableCopyServiceTests
     private static EnvironmentVariableCopyService CreateService(FakeHttpMessageHandler handler)
     {
         var actionsRestClient = new ActionsRestClient(new FakeGitHubClientFactory(handler));
-        return new EnvironmentVariableCopyService(actionsRestClient, new ItemMutationService(actionsRestClient, new SecretSealingService(), new CompositeVariableResolver(actionsRestClient)));
+        return new EnvironmentVariableCopyService(actionsRestClient, new ItemMutationService(actionsRestClient, new SecretSealingService(), new CompositeVariableResolver(actionsRestClient), new CompositeManifestService(actionsRestClient)));
     }
 
     [Fact]
@@ -58,7 +58,8 @@ public class EnvironmentVariableCopyServiceTests
                 ]}
                 """) // source
             .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"API_URL","value":"already-here","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""") // dest — API_URL already exists
-            .Enqueue(HttpStatusCode.Created, "{}"); // create NEW_VAR
+            .Enqueue(HttpStatusCode.Created, "{}") // create NEW_VAR
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // NEW_VAR's best-effort manifest read (plain value -> nothing to remove -> no write follows)
         var service = CreateService(handler);
 
         var result = await service.CopyEnvironmentVariablesAsync("octo-org", "widgets", "staging", "octo-org", "widgets", "production");
@@ -67,7 +68,7 @@ public class EnvironmentVariableCopyServiceTests
         Assert.Equal(["NEW_VAR"], result.Copied);
         Assert.Equal(["API_URL"], result.Skipped);
         Assert.Empty(result.Failures);
-        Assert.Equal(3, handler.RequestedPaths.Count);
+        Assert.Equal(4, handler.RequestedPaths.Count);
     }
 
     [Fact]
@@ -76,7 +77,8 @@ public class EnvironmentVariableCopyServiceTests
         var handler = new FakeHttpMessageHandler()
             .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"BASE_URL","value":"https://staging.example.com/staging/api","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
             .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""")
-            .Enqueue(HttpStatusCode.Created, "{}");
+            .Enqueue(HttpStatusCode.Created, "{}")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // best-effort manifest read
         var service = CreateService(handler);
 
         var result = await service.CopyEnvironmentVariablesAsync("octo-org", "widgets", "staging", "octo-org", "widgets", "production");
@@ -98,7 +100,8 @@ public class EnvironmentVariableCopyServiceTests
                 """)
             .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}""")
             .Enqueue(HttpStatusCode.UnprocessableEntity, """{"message":"Invalid request"}""") // VAR_1 create fails
-            .Enqueue(HttpStatusCode.Created, "{}"); // VAR_2 create succeeds
+            .Enqueue(HttpStatusCode.Created, "{}") // VAR_2 create succeeds
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"variables":[]}"""); // VAR_2's best-effort manifest read
         var service = CreateService(handler);
 
         var result = await service.CopyEnvironmentVariablesAsync("octo-org", "widgets", "staging", "octo-org", "widgets", "production");

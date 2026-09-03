@@ -17,6 +17,21 @@ function MakeVariable(name: string, value: string, scope: LedgerItem['scope'], l
   };
 }
 
+/**
+ * `formula` (not `value`) is now what makes an item composite — `value` is always the real,
+ * already-resolved GitHub literal. `FindDependents` reads `formula`, so every composite fixture in
+ * this file needs one; the resolved literal itself is irrelevant to `FindDependents`'s own logic,
+ * so it's just a fixed placeholder here.
+ */
+function MakeCompositeVariable(
+  name: string,
+  formula: string,
+  scope: LedgerItem['scope'],
+  level: LedgerItem['level'] = 'repository',
+): LedgerItem {
+  return { ...MakeVariable(name, 'resolved-literal', scope, level), formula };
+}
+
 describe('IsCompositeValue', () => {
   it('is true for a value containing a $(NAME) reference', () => {
     expect(IsCompositeValue('$(BASE_URL)/cdn')).toBeTrue();
@@ -57,7 +72,7 @@ describe('FindDependents', () => {
   it('finds a repository-level composite referencing an organization-level target', () => {
     const items = [
       MakeVariable('BASE_URL', 'https://example.com', org, 'organization'),
-      MakeVariable('CDN', '$(BASE_URL)/cdn', repo, 'repository'),
+      MakeCompositeVariable('CDN', '$(BASE_URL)/cdn', repo, 'repository'),
     ];
 
     const dependents = FindDependents(items, 'BASE_URL', org);
@@ -66,7 +81,7 @@ describe('FindDependents', () => {
   });
 
   it('finds an environment-level composite referencing a repository-level target', () => {
-    const items = [MakeVariable('CDN', '$(BASE_URL)/cdn', prodEnv, 'environment')];
+    const items = [MakeCompositeVariable('CDN', '$(BASE_URL)/cdn', prodEnv, 'environment')];
 
     const dependents = FindDependents(items, 'BASE_URL', repo);
 
@@ -74,7 +89,7 @@ describe('FindDependents', () => {
   });
 
   it('excludes an environment-level composite that is a different environment than the target', () => {
-    const items = [MakeVariable('CDN', '$(BASE_URL)/cdn', stagingEnv, 'environment')];
+    const items = [MakeCompositeVariable('CDN', '$(BASE_URL)/cdn', stagingEnv, 'environment')];
 
     const dependents = FindDependents(items, 'BASE_URL', prodEnv);
 
@@ -82,7 +97,7 @@ describe('FindDependents', () => {
   });
 
   it('excludes a same-named composite from an unrelated repo (no cross-repo reference possible)', () => {
-    const items = [MakeVariable('CDN', '$(BASE_URL)/cdn', otherRepo, 'repository')];
+    const items = [MakeCompositeVariable('CDN', '$(BASE_URL)/cdn', otherRepo, 'repository')];
 
     const dependents = FindDependents(items, 'BASE_URL', repo);
 
@@ -90,7 +105,7 @@ describe('FindDependents', () => {
   });
 
   it('excludes a repository-level composite from seeing an environment-level target (wrong direction in the precedence chain)', () => {
-    const items = [MakeVariable('CDN', '$(ENV_ONLY)/cdn', repo, 'repository')];
+    const items = [MakeCompositeVariable('CDN', '$(ENV_ONLY)/cdn', repo, 'repository')];
 
     const dependents = FindDependents(items, 'ENV_ONLY', prodEnv);
 
@@ -105,8 +120,16 @@ describe('FindDependents', () => {
     expect(dependents).toEqual([]);
   });
 
+  it('ignores an old-model variable whose value still literally contains "$(...)" text but has no formula (no manifest entry)', () => {
+    const items = [MakeVariable('CDN', '$(BASE_URL)/cdn', repo, 'repository')];
+
+    const dependents = FindDependents(items, 'BASE_URL', repo);
+
+    expect(dependents).toEqual([]);
+  });
+
   it('excludes the target item itself', () => {
-    const items = [MakeVariable('SELF', 'plain', org, 'organization')];
+    const items = [MakeCompositeVariable('SELF', '$(SELF)', org, 'organization')];
 
     const dependents = FindDependents(items, 'SELF', org);
 

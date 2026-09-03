@@ -81,6 +81,12 @@ builder.Services.AddScoped<SecretSealingService>();
 // ItemMutationService), consumed by both of them plus the preview-only resolve endpoint.
 builder.Services.AddScoped<CompositeVariableResolver>();
 
+// Owns reading/writing each scope's hidden composite-formula manifest variable — kept separate
+// from CompositeVariableResolver (that class resolves a formula against a lookup; this one owns
+// the manifest blob's read/write mechanics), and separate from ItemMutationService (its own
+// consumer) to avoid a circular dependency.
+builder.Services.AddScoped<CompositeManifestService>();
+
 builder.Services.AddScoped<ItemMutationService>();
 builder.Services.AddScoped<EnvironmentRenameService>();
 

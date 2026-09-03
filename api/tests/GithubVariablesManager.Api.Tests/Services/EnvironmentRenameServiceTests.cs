@@ -12,7 +12,7 @@ public class EnvironmentRenameServiceTests
         return new EnvironmentRenameService(
             new EnvironmentsService(actionsRestClient),
             actionsRestClient,
-            new ItemMutationService(actionsRestClient, new SecretSealingService(), new CompositeVariableResolver(actionsRestClient)));
+            new ItemMutationService(actionsRestClient, new SecretSealingService(), new CompositeVariableResolver(actionsRestClient), new CompositeManifestService(actionsRestClient)));
     }
 
     [Fact]

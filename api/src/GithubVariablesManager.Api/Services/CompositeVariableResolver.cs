@@ -13,6 +13,15 @@ namespace GithubVariablesManager.Api.Services;
 public sealed class CompositeCircularReferenceException(string message) : Exception(message);
 
 /// <summary>
+/// Thrown by <see cref="ItemMutationService.SyncCompositeVariableAsync"/> when the named variable
+/// isn't actually tracked as composite in its scope's manifest (<see cref="CompositeManifestService"/>)
+/// — not an <see cref="Octokit.ApiException"/> (nothing touched GitHub), so it's caught locally in
+/// <c>Endpoints/LedgerEndpoints.cs</c> and mapped to a 400, the same local-catch pattern this file's
+/// <see cref="CompositeCircularReferenceException"/> already established.
+/// </summary>
+public sealed class CompositeFormulaNotFoundException(string message) : Exception(message);
+
+/// <summary>
 /// Result of resolving a single composite formula: the fully-substituted literal (nested composite
 /// references are resolved recursively too), which of its <c>$(NAME)</c> tokens couldn't be found
 /// anywhere in the supplied lookup (left as literal <c>$(NAME)</c> text in <see cref="ResolvedValue"/>
@@ -29,9 +38,17 @@ public sealed record CompositeResolutionResult(
 /// <summary>
 /// Owns every piece of composite-variable logic — a GitHub Actions <b>variable</b> (never a secret,
 /// see "Secrets" below) whose value can reference other variables via <c>$(OtherVarName)</c>
-/// syntax. GitHub itself has no concept of this: the stored GitHub value <i>is</i> the formula,
-/// byte-for-byte as typed, and "is composite" is always derived by matching
-/// <see cref="ReferencePattern"/> against the value rather than stored as a separate flag anywhere.
+/// syntax. Unlike this feature's original design, the stored GitHub value is now always the
+/// resolved literal (works immediately in any real Actions workflow run, no manual step) — whether
+/// a variable is composite at all is now tracked separately, in each scope's hidden manifest
+/// variable (<see cref="CompositeManifestService"/>), not derived from the value's own shape. This
+/// class is still the one place formula resolution itself happens (regex-matching
+/// <see cref="ReferencePattern"/> against a formula string, recursion-stack cycle detection, and the
+/// two lookup builders below) — it just no longer decides "is this composite" on its own; callers
+/// (<see cref="LedgerService"/>, <see cref="ItemMutationService"/>) look that up in the manifest
+/// first and pass this class the formula text once they already know it's composite. <see cref="IsComposite"/>
+/// itself is still used for live-authoring-time detection of what's currently typed into a value box,
+/// before anything is saved to a manifest.
 ///
 /// Kept a distinct, narrow service — not folded into <see cref="LedgerService"/> or
 /// <see cref="ItemMutationService"/> — the same rationale <see cref="SecretSealingService"/> is kept
@@ -169,7 +186,14 @@ public sealed class CompositeVariableResolver(ActionsRestClient actionsRestClien
             try
             {
                 var raw = await actionsRestClient.ListVariablesAsync(org, targetRepo, targetEnv, targetLevel);
-                foreach (var variable in raw) lookup[variable.Name] = variable.Value;
+                foreach (var variable in raw)
+                {
+                    // The manifest variable is never a real sibling to resolve against — unlike
+                    // BuildLookupFromItems above, this reads directly via ActionsRestClient rather
+                    // than an already-manifest-filtered item list, so it needs its own guard.
+                    if (variable.Name == CompositeManifestService.ManifestVariableName) continue;
+                    lookup[variable.Name] = variable.Value;
+                }
             }
             catch (Octokit.ApiException)
             {

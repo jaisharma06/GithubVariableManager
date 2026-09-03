@@ -22,46 +22,75 @@ namespace GithubVariablesManager.Api.Services;
 public sealed class ItemMutationService(
     ActionsRestClient actionsRestClient,
     SecretSealingService secretSealingService,
-    CompositeVariableResolver compositeVariableResolver)
+    CompositeVariableResolver compositeVariableResolver,
+    CompositeManifestService compositeManifestService)
 {
     /// <summary>
-    /// Strict create — validated for a genuine circular composite reference first (see
-    /// <see cref="ValidateNoCircularReferenceAsync"/>). A forward reference to a not-yet-created
-    /// variable is deliberately *not* validated against here — allowed to save, flagged as
-    /// unresolved by <see cref="LedgerService"/>'s read-time resolution instead (see
+    /// Strict create. <paramref name="value"/> is the user's raw formula text if they're authoring a
+    /// composite (unchanged client contract) — server-side, this now writes the real GitHub value as
+    /// today's resolved <b>literal</b> (a real Actions workflow run sees a working value
+    /// immediately, no manual step) and separately tracks the formula in this scope's manifest, so
+    /// it can be recovered and re-synced later. The variable write happens first, then the manifest
+    /// update is attempted best-effort — see this method body's inline comment for why that order is
+    /// deliberate. A circular formula is validated before anything is written (see
+    /// <see cref="ResolveForWriteAsync"/>); a forward reference to a not-yet-created variable is
+    /// deliberately *not* blocked — allowed to save, left as an unresolved literal token in the
+    /// written value, recoverable via Sync once the referenced variable exists (see
     /// <see cref="CompositeVariableResolver"/>'s doc comment for the full design).
     /// </summary>
-    public async Task CreateVariableAsync(string org, string? repo, string? env, string level, string name, string value)
+    public async Task<UpsertVariableResponse> CreateVariableAsync(string org, string? repo, string? env, string level, string name, string value)
     {
-        await ValidateNoCircularReferenceAsync(org, repo, env, level, name, value);
-        await actionsRestClient.CreateVariableAsync(org, repo, env, level, name, value);
+        var (valueToWrite, isComposite) = await ResolveForWriteAsync(org, repo, env, level, name, value);
+
+        // Variable write first, manifest second: if the manifest update below fails, the artifact
+        // that actually matters — a working, correct literal — already exists. The app merely
+        // "forgets" it was a formula, recoverable by re-saving. The reverse order would risk an
+        // orphaned manifest entry claiming composite-ness for a variable that was never actually
+        // written.
+        await actionsRestClient.CreateVariableAsync(org, repo, env, level, name, valueToWrite);
+        return await SyncManifestEntryAsync(org, repo, env, level, name, isComposite ? value : null);
     }
 
+    /// <summary>
+    /// Create-or-update-by-name, no rename — deliberately manifest-unaware. Used only by
+    /// <see cref="CopyService"/> (Copy-to-scopes' variable branch) and
+    /// <see cref="EnvironmentRenameService"/>, both of which copy a variable's already-resolved
+    /// literal value verbatim; a composite formula copying into a scope that's merely missing one of
+    /// its referenced names is an explicitly allowed, non-error outcome, and the destination
+    /// deliberately does NOT get an auto-created manifest entry — see
+    /// <see cref="CompositeVariableResolver"/>'s doc comment for the full design. Unchanged from
+    /// before this feature's manifest redesign.
+    /// </summary>
     public Task UpsertVariableAsync(string org, string? repo, string? env, string level, string name, string value) =>
         actionsRestClient.UpsertVariableAsync(org, repo, env, level, name, value);
 
     /// <summary>
-    /// Rename+value-update in one call, matching today's single-PATCH behavior. Validated for a
-    /// circular composite reference under the *new* name first, same as
-    /// <see cref="CreateVariableAsync"/>.
+    /// Rename+value-update in one call, matching today's single-PATCH behavior. Same resolve-then-
+    /// write-then-manifest shape as <see cref="CreateVariableAsync"/>. When the name itself changes,
+    /// the manifest update's single <c>ApplyAsync</c> mutate lambda both removes the old-name key and
+    /// sets/removes the new-name key — one manifest round trip total regardless of the transition
+    /// (composite -> composite-renamed, composite -> plain, plain -> composite).
     /// </summary>
-    public async Task UpdateVariableAsync(string org, string? repo, string? env, string level, string currentName, string newName, string value)
+    public async Task<UpsertVariableResponse> UpdateVariableAsync(string org, string? repo, string? env, string level, string currentName, string newName, string value)
     {
-        await ValidateNoCircularReferenceAsync(org, repo, env, level, newName, value);
-        await actionsRestClient.UpdateVariableAsync(org, repo, env, level, currentName, newName, value);
+        var (valueToWrite, isComposite) = await ResolveForWriteAsync(org, repo, env, level, newName, value);
+
+        await actionsRestClient.UpdateVariableAsync(org, repo, env, level, currentName, newName, valueToWrite);
+
+        var oldNameToRemove = currentName != newName ? currentName : null;
+        return await SyncManifestEntryAsync(org, repo, env, level, newName, isComposite ? value : null, oldNameToRemove);
     }
 
     /// <summary>
-    /// Only variable creates/renames go through this — <see cref="UpsertVariableAsync"/> (Copy/
-    /// replicate-to-environments' variable branch) deliberately does not, since copying a composite
-    /// formula into a scope that's merely missing one of its referenced names is an explicitly
-    /// allowed, non-error outcome (the destination just shows the reference as unresolved, same as
-    /// any other broken reference) — see <see cref="CompositeVariableResolver"/>'s doc comment.
-    /// A plain (non-composite) value skips the extra GitHub reads below entirely.
+    /// Shared pre-write step for <see cref="CreateVariableAsync"/>/<see cref="UpdateVariableAsync"/>:
+    /// decides whether <paramref name="value"/> is a composite formula, and if so, resolves it
+    /// against the item's current scope chain (throwing <see cref="CompositeCircularReferenceException"/>
+    /// on a genuine cycle) to produce the literal that's actually written to GitHub. A plain
+    /// (non-composite) value skips the extra GitHub reads entirely and is written unchanged.
     /// </summary>
-    private async Task ValidateNoCircularReferenceAsync(string org, string? repo, string? env, string level, string name, string value)
+    private async Task<(string ValueToWrite, bool IsComposite)> ResolveForWriteAsync(string org, string? repo, string? env, string level, string name, string value)
     {
-        if (!CompositeVariableResolver.IsComposite(value)) return;
+        if (!CompositeVariableResolver.IsComposite(value)) return (value, false);
 
         var lookup = await compositeVariableResolver.BuildLookupAsync(org, repo, env, level);
         var result = compositeVariableResolver.Resolve(name, value, lookup);
@@ -69,10 +98,79 @@ public sealed class ItemMutationService(
         {
             throw new CompositeCircularReferenceException(result.CircularError ?? "Circular reference detected.");
         }
+
+        return (result.ResolvedValue!, true);
     }
 
-    public Task DeleteVariableAsync(string org, string? repo, string? env, string level, string name) =>
-        actionsRestClient.DeleteVariableAsync(org, repo, env, level, name);
+    /// <summary>
+    /// Best-effort manifest write following a successful variable create/rename: composite ->
+    /// <c>map[name] = formula</c>; not composite -> <c>map.Remove(name)</c> (covers "was composite,
+    /// now plain"). Optionally also removes <paramref name="oldNameToRemove"/> in the same mutate
+    /// pass (the rename case). Catches <see cref="Octokit.ApiException"/> from this step specifically
+    /// — the variable write already succeeded and is the artifact that matters functionally, so a
+    /// manifest failure is reported back rather than failing the whole call.
+    /// </summary>
+    private async Task<UpsertVariableResponse> SyncManifestEntryAsync(
+        string org, string? repo, string? env, string level, string name, string? formulaOrNull, string? oldNameToRemove = null)
+    {
+        try
+        {
+            await compositeManifestService.ApplyAsync(org, repo, env, level, map =>
+            {
+                if (oldNameToRemove is not null) map.Remove(oldNameToRemove);
+                if (formulaOrNull is not null) map[name] = formulaOrNull;
+                else map.Remove(name);
+            });
+            return new UpsertVariableResponse(ManifestSynced: true, ManifestSyncError: null);
+        }
+        catch (Octokit.ApiException ex)
+        {
+            return new UpsertVariableResponse(ManifestSynced: false, ManifestSyncError: ex.Message);
+        }
+    }
+
+    public async Task DeleteVariableAsync(string org, string? repo, string? env, string level, string name)
+    {
+        await actionsRestClient.DeleteVariableAsync(org, repo, env, level, name);
+
+        // Best-effort, silent: the worst case is one inert dead JSON key that ResolveComposites
+        // never visits (it only iterates items that still exist) — lower stakes than a
+        // create/update manifest failure, which loses live formula-awareness for a variable that
+        // still exists.
+        try
+        {
+            await compositeManifestService.ApplyAsync(org, repo, env, level, map => map.Remove(name));
+        }
+        catch (Octokit.ApiException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Re-reads <paramref name="name"/>'s formula from its scope's manifest, recomputes it against
+    /// current sibling values, and overwrites the real GitHub value in place — the manual recovery
+    /// action a user takes after a dependency's value changed (surfaced via a stale
+    /// <c>ResolvedValue != Value</c> read) or to retry a currently-broken/circular formula. The
+    /// manifest itself is untouched — the formula hasn't changed, only its resolved output.
+    /// </summary>
+    public async Task<SyncVariableResponse> SyncCompositeVariableAsync(string org, string? repo, string? env, string level, string name)
+    {
+        var manifest = await compositeManifestService.GetManifestAsync(org, repo, env, level);
+        if (!manifest.TryGetValue(name, out var formula))
+        {
+            throw new CompositeFormulaNotFoundException($"\"{name}\" has no saved formula to sync.");
+        }
+
+        var lookup = await compositeVariableResolver.BuildLookupAsync(org, repo, env, level);
+        var result = compositeVariableResolver.Resolve(name, formula, lookup);
+        if (result.Circular)
+        {
+            throw new CompositeCircularReferenceException(result.CircularError ?? "Circular reference detected.");
+        }
+
+        await actionsRestClient.UpdateVariableAsync(org, repo, env, level, name, name, result.ResolvedValue!);
+        return new SyncVariableResponse(result.ResolvedValue!, result.UnresolvedReferences);
+    }
 
     /// <summary>
     /// Fetches the scope's current public key, seals the plaintext against it, then PUTs — GitHub's

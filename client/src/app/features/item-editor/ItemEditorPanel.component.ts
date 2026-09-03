@@ -87,6 +87,15 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit, OnDestro
    * kind of partial-failure outcome.
    */
   protected readonly renameDeleteWarning = signal<string | null>(null);
+  /**
+   * Set when a composite variable's create/update write succeeded but the best-effort manifest
+   * update that tracks its formula failed (see `ItemMutationService.SyncManifestEntryAsync`'s doc
+   * comment) — the real GitHub value is correct either way, the app just "forgot" this was a
+   * formula, recoverable by re-saving. Reuses the same warning-banner shape as
+   * `renameDeleteWarning`/`replicateFailures` above rather than inventing new UI for a third kind of
+   * partial-failure outcome.
+   */
+  protected readonly manifestSyncWarning = signal<string | null>(null);
 
   /**
    * Composite-variable ($(OtherVarName)) live authoring feedback — debounced preview against
@@ -159,7 +168,11 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit, OnDestro
     this.envName.set(initial?.scope.env ?? this.initialEnv() ?? this.environments()[0]?.name ?? '');
     this.kind.set(initial?.kind ?? this.initialKind() ?? 'variable');
     this.name.set(initial?.name ?? this.initialName() ?? '');
-    this.value.set(initial?.kind === 'variable' ? (initial.value ?? '') : (this.initialValue() ?? ''));
+    // A composite variable's formula (not its already-resolved literal `value`) is what should
+    // round-trip back into the value box on edit — seeding from `value` instead would silently
+    // detach it from its formula on re-save (the literal doesn't match the composite regex, so the
+    // manifest entry would get removed).
+    this.value.set(initial?.kind === 'variable' ? (initial.formula ?? initial.value ?? '') : (this.initialValue() ?? ''));
     this.visibility.set(initial?.visibility ?? 'all');
     this.ScheduleResolvePreview();
   }
@@ -289,6 +302,7 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit, OnDestro
     this.error.set(null);
     this.replicateFailures.set(null);
     this.renameDeleteWarning.set(null);
+    this.manifestSyncWarning.set(null);
 
     const name = this.name();
     if (!name.trim() || !NAME_PATTERN.test(name)) {
@@ -333,16 +347,20 @@ export class ItemEditorPanelComponent implements OnInit, AfterViewInit, OnDestro
 
     try {
       if (kind === 'variable') {
-        if (isEdit) {
-          await this.itemMutationsFacade.updateVariable.mutateAsync({
-            scope: targetScope,
-            level,
-            currentName: this.initial()!.name,
-            newName: name,
-            value,
-          });
-        } else {
-          await this.itemMutationsFacade.createVariable.mutateAsync({ scope: targetScope, level, name, value });
+        const result = isEdit
+          ? await this.itemMutationsFacade.updateVariable.mutateAsync({
+              scope: targetScope,
+              level,
+              currentName: this.initial()!.name,
+              newName: name,
+              value,
+            })
+          : await this.itemMutationsFacade.createVariable.mutateAsync({ scope: targetScope, level, name, value });
+        if (!result.manifestSynced) {
+          this.manifestSyncWarning.set(
+            `Saved, but couldn't record this as a formula for later syncing: ${result.manifestSyncError ?? 'Unknown error'}`,
+          );
+          return;
         }
       } else if (isEdit && isRenaming) {
         const result = await this.itemMutationsFacade.renameSecret.mutateAsync({

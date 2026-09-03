@@ -48,10 +48,19 @@ namespace GithubVariablesManager.Api.Endpoints;
 /// live feedback as a formula is typed. <c>POST</c>/<c>PATCH /api/ledger/variables</c> gain
 /// pre-write circular-reference validation (a genuine 400, caught locally the same way
 /// <see cref="EnvironmentRenameValidationException"/> is above) — an *unresolved* (non-circular)
-/// forward reference is deliberately allowed to save. Read-time resolution itself
-/// (<c>GET /api/ledger</c>'s <c>ResolvedValue</c>/<c>UnresolvedReferences</c> fields) happens inside
-/// <see cref="Services.LedgerService.GetLedgerAsync"/>, not here — see
-/// <see cref="Services.CompositeVariableResolver"/>'s doc comment for the full design.
+/// forward reference is deliberately allowed to save; both now return an
+/// <see cref="UpsertVariableResponse"/> body reporting whether the best-effort manifest update that
+/// follows the variable write also succeeded, instead of a bare 200. The GitHub-stored value a
+/// composite write actually writes is always the resolved literal — never the raw formula — with the
+/// formula itself tracked separately in the scope's hidden manifest variable
+/// (<see cref="Services.CompositeManifestService"/>). <c>POST /api/ledger/variables/sync</c> is the
+/// manual recovery action (replacing the old "flatten to literal" 1:1): re-reads a variable's
+/// formula from its scope's manifest and recomputes it against current sibling values, overwriting
+/// the real value — the manifest itself is untouched. Read-time resolution itself
+/// (<c>GET /api/ledger</c>'s <c>Formula</c>/<c>ResolvedValue</c>/<c>UnresolvedReferences</c> fields)
+/// happens inside <see cref="Services.LedgerService.GetLedgerAsync"/>, not here — see
+/// <see cref="Services.CompositeVariableResolver"/>'s and <see cref="Services.CompositeManifestService"/>'s
+/// doc comments for the full design.
 /// </summary>
 public static class LedgerEndpoints
 {
@@ -140,8 +149,8 @@ public static class LedgerEndpoints
 
             try
             {
-                await itemMutationService.CreateVariableAsync(request.Org, request.Repo, request.Env, request.Level, request.Name, request.Value);
-                return Results.Ok();
+                var result = await itemMutationService.CreateVariableAsync(request.Org, request.Repo, request.Env, request.Level, request.Name, request.Value);
+                return Results.Ok(result);
             }
             catch (CompositeCircularReferenceException ex)
             {
@@ -154,7 +163,7 @@ public static class LedgerEndpoints
             .WithName("CreateVariable")
             .WithTags("Ledger")
             .WithSummary("Create a new Actions variable at the given scope level.")
-            .Produces(200)
+            .Produces<UpsertVariableResponse>(200)
             .Produces<ErrorResponse>(400)
             .Produces<ErrorResponse>(401);
 
@@ -171,8 +180,8 @@ public static class LedgerEndpoints
 
             try
             {
-                await itemMutationService.UpdateVariableAsync(request.Org, request.Repo, request.Env, request.Level, request.CurrentName, request.NewName, request.Value);
-                return Results.Ok();
+                var result = await itemMutationService.UpdateVariableAsync(request.Org, request.Repo, request.Env, request.Level, request.CurrentName, request.NewName, request.Value);
+                return Results.Ok(result);
             }
             catch (CompositeCircularReferenceException ex)
             {
@@ -182,7 +191,7 @@ public static class LedgerEndpoints
             .WithName("RenameVariable")
             .WithTags("Ledger")
             .WithSummary("Rename and/or update an existing Actions variable.")
-            .Produces(200)
+            .Produces<UpsertVariableResponse>(200)
             .Produces<ErrorResponse>(400)
             .Produces<ErrorResponse>(401);
 
@@ -205,6 +214,38 @@ public static class LedgerEndpoints
             .WithTags("Ledger")
             .WithSummary("Preview-only: resolve a composite variable's formula against other variables visible in its scope chain (environment > repository > organization), without writing anything. Used for live authoring feedback.")
             .Produces<ResolveVariableResponse>(200)
+            .Produces<ErrorResponse>(400)
+            .Produces<ErrorResponse>(401);
+
+        group.MapPost("/variables/sync", async (SyncVariableRequest request, IBearerTokenAccessor tokenAccessor, ItemMutationService itemMutationService) =>
+        {
+            if (tokenAccessor.GetToken() is null)
+            {
+                return Results.Json(new ErrorResponse("Missing bearer token."), statusCode: 401);
+            }
+            if (!ValidLevels.Contains(request.Level))
+            {
+                return Results.Json(new ErrorResponse("Invalid level."), statusCode: 400);
+            }
+
+            try
+            {
+                var result = await itemMutationService.SyncCompositeVariableAsync(request.Org, request.Repo, request.Env, request.Level, request.Name);
+                return Results.Ok(result);
+            }
+            catch (CompositeFormulaNotFoundException ex)
+            {
+                return Results.Json(new ErrorResponse(ex.Message), statusCode: 400);
+            }
+            catch (CompositeCircularReferenceException ex)
+            {
+                return Results.Json(new ErrorResponse(ex.Message), statusCode: 400);
+            }
+        })
+            .WithName("SyncCompositeVariable")
+            .WithTags("Ledger")
+            .WithSummary("Re-read a composite variable's formula from its scope's manifest and recompute it against current sibling values, overwriting the real GitHub value in place. Replaces the old 'flatten to literal' action 1:1 — the formula itself is untouched, still recoverable for syncing again anytime.")
+            .Produces<SyncVariableResponse>(200)
             .Produces<ErrorResponse>(400)
             .Produces<ErrorResponse>(401);
 

@@ -13,7 +13,16 @@ see `docs/Architecture.md`'s "Gateway/Adapter" pattern entry for the full ration
   `ListVariables` was dropped once `LedgerFacade` moved to `ILedgerGateway`'s merged read.
   `UpsertVariable` (create-or-update-by-name, no rename) was dropped in Phase 6: it existed only
   for `CopyFacade.CopyTo`'s old client-side variable branch, which now calls `ILedgerGateway.Copy`
-  instead — its backend route (`PUT /api/ledger/variables`) is gone too.
+  instead — its backend route (`PUT /api/ledger/variables`) is gone too. A later addition, from the
+  composite-variable feature's manifest-based redesign: `CreateVariable`/`UpdateVariable`'s return
+  type widened from a bare success to `UpsertVariableResult` (`manifestSynced: boolean`,
+  `manifestSyncError?: string`) — mirrors `api/Contracts/LedgerContracts.cs`'s
+  `UpsertVariableResponse` exactly. The variable write itself always succeeded by the time this
+  resolves (a failure there rejects the call as usual); this only reports whether the best-effort
+  composite-manifest update that follows it also succeeded — `manifestSynced: false` means the app
+  "forgot" this variable was a formula (recoverable by re-saving), never that the write itself
+  failed. See `core/facades/README.md`'s `ItemMutationsFacade.ts` entry for how a `false` result is
+  surfaced.
 - `ILedgerGateway.ts` / `BackendLedgerGateway.service.ts` — talks to the `api/` ASP.NET Core
   backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`). Started as purely the merged read
   (`GET /api/ledger`), which does the variables + secrets + environment fan-out and locked-section
@@ -47,10 +56,27 @@ see `docs/Architecture.md`'s "Gateway/Adapter" pattern entry for the full ration
   formulas, variables only). Returns `ResolveVariableResult` (`resolvedValue`/
   `unresolvedReferences`/`circular`/`circularError`), also declared in this file rather than
   `core/facades/LedgerSupport.ts`, since it's not part of the merged-read `LedgerResult` shape those
-  other reused types are. `GetLedger`'s own response also carries new `resolvedValue`/
+  other reused types are. `GetLedger`'s own response also carries `formula`/`resolvedValue`/
   `unresolvedReferences` fields per item now (mapped straight through in `ToLedgerItem`, see
   `core/Types.ts`'s `LedgerItem` for the client-facing shape) — populated server-side by
-  `Services/LedgerService.cs`'s post-fan-out resolution pass, not computed here.
+  `Services/LedgerService.cs`'s post-fan-out resolution pass, not computed here. A further later
+  addition, from the composite-variable feature's manifest-based redesign (see
+  `docs/Architecture.md`'s composite-variables section for the full design): `formula` is new — the
+  raw `$(...)` formula text, populated only when the item's name is tracked in its own scope's
+  hidden manifest variable, and now the sole "is this composite" signal (`value` is always the real,
+  already-resolved GitHub literal, never the formula, for every item including a composite one).
+  `resolvedValue` is repurposed as a staleness signal — recomputed fresh on every read against
+  current sibling values, so `value !== resolvedValue` means a dependency changed since this item's
+  last write/sync. `SyncVariable(scope, level, name)` — `POST /api/ledger/variables/sync` — is the
+  manual recovery/refresh action, replacing this feature's original "flatten to literal" 1:1 at the
+  same UI trigger point: the client sends only the target's identity, no formula/value of its own,
+  since the server re-reads the formula from its own scope's manifest and recomputes it against
+  current sibling values before overwriting the real GitHub value in place. Returns
+  `SyncVariableResult` (`resolvedValue`/`unresolvedReferences`, mirroring `api/`'s
+  `SyncVariableResponse`), also declared in this file. Unlike the old flatten action (which reused
+  the existing update-variable mutation client-side), Sync is a dedicated call — the formula itself
+  is untouched by it and stays saved for syncing again anytime, since it lives in the manifest, not
+  in the value being overwritten.
 - `ISecretsGateway.ts` / `BackendSecretsGateway.service.ts` — talks to the `api/` ASP.NET Core
   backend's Ledger vertical (`Endpoints/LedgerEndpoints.cs`), not `api.github.com` (Phase 3b).
   Sends a secret's plaintext value directly — sealing (public-key fetch + libsodium sealed-box

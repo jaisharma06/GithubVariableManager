@@ -61,12 +61,23 @@ export function CreateFakeEnvironmentsGateway(): jasmine.SpyObj<IEnvironmentsGat
   ]);
 }
 
+/**
+ * `CreateVariable`/`UpdateVariable` default to resolving `{ manifestSynced: true }` — the
+ * overwhelming-majority-case outcome (a plain, non-composite write, or a composite write whose
+ * manifest update also succeeded) — so a spec exercising `ItemEditorPanelComponent`'s success path
+ * doesn't need to configure this return value itself just to avoid reading `.manifestSynced` off
+ * `undefined`. A spec that specifically wants to test the manifest-sync-failure banner still
+ * overrides this with its own `.and.resolveTo({ manifestSynced: false, manifestSyncError: '...' })`.
+ */
 export function CreateFakeVariablesGateway(): jasmine.SpyObj<IVariablesGateway> {
-  return jasmine.createSpyObj<IVariablesGateway>('IVariablesGateway', [
+  const gateway = jasmine.createSpyObj<IVariablesGateway>('IVariablesGateway', [
     'CreateVariable',
     'UpdateVariable',
     'DeleteVariable',
   ]);
+  gateway.CreateVariable.and.resolveTo({ manifestSynced: true });
+  gateway.UpdateVariable.and.resolveTo({ manifestSynced: true });
+  return gateway;
 }
 
 export function CreateFakeLedgerGateway(): jasmine.SpyObj<ILedgerGateway> {
@@ -77,6 +88,7 @@ export function CreateFakeLedgerGateway(): jasmine.SpyObj<ILedgerGateway> {
     'ExportLedger',
     'CopyEnvironmentVariables',
     'ResolveVariable',
+    'SyncVariable',
   ]);
 }
 

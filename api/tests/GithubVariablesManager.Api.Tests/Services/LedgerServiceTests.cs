@@ -141,16 +141,23 @@ public class LedgerServiceTests
     [Fact]
     public async Task GetLedgerAsync_CompositeVariable_GetsResolvedValueFromTheSameReadsFetch()
     {
+        // The manifest variable (__GHVM_COMPOSITE_MANIFEST__) rides along in the same
+        // ListVariablesAsync response already fetched for the scope — CDN's own real value is
+        // already the resolved literal (new model), and its formula lives only in the manifest.
         var handler = new FakeHttpMessageHandler()
-            .Enqueue(HttpStatusCode.OK, """{"total_count":2,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"CDN","value":"$(BASE_URL)/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":3,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"CDN","value":"https://example.com/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"CDN\":\"$(BASE_URL)/cdn\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
             .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
         var service = CreateService(handler);
 
         var ledger = await service.GetLedgerAsync("octo-org", null);
 
         var cdn = Assert.Single(ledger.Items, i => i.Name == "CDN");
+        Assert.Equal("$(BASE_URL)/cdn", cdn.Formula);
+        Assert.Equal("https://example.com/cdn", cdn.Value);
         Assert.Equal("https://example.com/cdn", cdn.ResolvedValue);
         Assert.Empty(cdn.UnresolvedReferences!);
+        // The manifest variable itself is filtered out of the returned item list — never a normal row.
+        Assert.DoesNotContain(ledger.Items, i => i.Name == "__GHVM_COMPOSITE_MANIFEST__");
         // No extra GitHub calls made for resolution — only the 2 read requests already fetched.
         Assert.Equal(2, handler.RequestedPaths.Count);
     }
@@ -159,7 +166,7 @@ public class LedgerServiceTests
     public async Task GetLedgerAsync_CompositeVariableWithMissingReference_FlagsItUnresolved_DoesNotFailTheRead()
     {
         var handler = new FakeHttpMessageHandler()
-            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"CDN","value":"$(NOT_YET_CREATED)/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":2,"variables":[{"name":"CDN","value":"$(NOT_YET_CREATED)/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"CDN\":\"$(NOT_YET_CREATED)/cdn\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
             .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
         var service = CreateService(handler);
 
@@ -182,6 +189,39 @@ public class LedgerServiceTests
 
         var plain = Assert.Single(ledger.Items);
         Assert.Null(plain.ResolvedValue);
+        Assert.Null(plain.Formula);
+    }
+
+    [Fact]
+    public async Task GetLedgerAsync_OldModelLiteralWithNoManifestEntry_ReadsAsAnOrdinaryPlainVariable()
+    {
+        // A pre-existing old-model row: value still literally contains "$(...)" text, but this
+        // scope has no manifest entry for it (or no manifest variable at all) — degrades gracefully
+        // to a plain variable, no special migration needed.
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"CDN","value":"$(BASE_URL)/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var ledger = await service.GetLedgerAsync("octo-org", null);
+
+        var cdn = Assert.Single(ledger.Items);
+        Assert.Null(cdn.Formula);
+        Assert.Null(cdn.ResolvedValue);
+        Assert.Equal("$(BASE_URL)/cdn", cdn.Value);
+    }
+
+    [Fact]
+    public async Task GetLedgerAsync_ManifestVariable_IsFilteredOutOfTheItemList_NeverShownAsANormalRow()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var ledger = await service.GetLedgerAsync("octo-org", null);
+
+        Assert.Empty(ledger.Items);
     }
 
     [Fact]
