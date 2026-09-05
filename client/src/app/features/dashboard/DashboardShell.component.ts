@@ -103,6 +103,7 @@ export class DashboardShellComponent {
   protected readonly ledgerItems = computed(() => this.ledgerQuery.data()?.items ?? []);
   protected readonly ledgerPartialErrors = computed(() => this.ledgerQuery.data()?.partialErrors ?? []);
   protected readonly ledgerLockedSections = computed(() => this.ledgerQuery.data()?.lockedSections ?? []);
+  protected readonly ledgerCorruptedManifestScopes = computed(() => this.ledgerQuery.data()?.corruptedManifestScopes ?? []);
 
   protected readonly filters = signal<LedgerFilters>(DEFAULT_FILTERS);
   protected readonly envToDelete = signal<string | null>(null);

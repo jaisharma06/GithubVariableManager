@@ -130,7 +130,13 @@ directly (see `core/gateways/README.md` for the Gateway layer these sit on top o
   types `ILedgerGateway`/`BackendLedgerGateway.service.ts` consume): `SameScope`, `ErrorMessage`,
   `OptimisticVariable`, `OptimisticSecret`; plus the `LedgerPartialError`/`LedgerLockedSection`/
   `LedgerResult` types. `RunLedgerJobs`/`JobLabel`/`LedgerJob` (the client-side fan-out) were
-  deleted once that logic moved server-side — see `LedgerFacade.ts` above. A later,
+  deleted once that logic moved server-side — see `LedgerFacade.ts` above. A later, non-phase-numbered
+  addition, manifest-corruption detection (see `docs/Architecture.md`'s dedicated subsection): a new
+  `CorruptedManifestScope` type (`{ level, scopeLabel, env? }`, mirroring `LedgerLockedSection`'s
+  shape) and a fourth field on `LedgerResult`, `corruptedManifestScopes: CorruptedManifestScope[]` —
+  one entry per scope whose hidden composite-manifest variable exists but failed to parse, distinct
+  from an absent manifest (a scope with no composites at all), which never appears in this list. A
+  later,
   non-phase-numbered addition: composite-variable support (Azure-App-Config-style `$(OtherVarName)`
   formulas, variables only). `IsCompositeValue`/`ExtractReferences` are pure regex helpers kept in
   sync **by hand** with `api/Services/CompositeVariableResolver.cs`'s `ReferencePattern` (same

@@ -83,7 +83,14 @@
   `border-ok/30`/`text-ok` success treatment for synced, a neutral `bg-panel-raised` card for
   already-up-to-date (substituting where this app's palette has no `ok-dim` token), and the existing
   `border-danger/30 bg-danger-dim` failure-banner language for failed, each listing the affected
-  variable names (`SyncAllNames`).
+  variable names (`SyncAllNames`). A later, non-phase-numbered addition, manifest-corruption
+  detection (see `docs/Architecture.md`'s dedicated subsection for the full design): a new
+  `ledgerCorruptedManifestScopes` computed (`this.ledgerQuery.data()?.corruptedManifestScopes ?? []`,
+  the same pattern as the existing `ledgerPartialErrors`/`ledgerLockedSections` computeds) is bound to
+  `app-ledger`'s new `[corruptedManifestScopes]` input (see `features/ledger/README.md`'s
+  `Ledger.component.ts`/`.html` entry for the banner it backs). This component does no shaping of its
+  own — it's a pure pass-through of whatever `GET /api/ledger` reports, same as the other two ledger
+  computeds it sits beside.
 - **`ScopeSidebar.component.ts`/`.html`** — org/repo header, environment list with per-environment
   rename/delete affordances, "+ New environment" inline form. Injects `EnvironmentsFacade` directly
   (not solely via `output()`) for the create-environment flow — documented in a comment on the

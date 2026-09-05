@@ -32,10 +32,23 @@ public sealed record LedgerItemResponse(
 public sealed record LedgerPartialErrorResponse(string Label, string Message);
 public sealed record LedgerLockedSectionResponse(string Level, string Kind, string ScopeLabel, string? Env);
 
+/// <summary>
+/// A scope whose hidden composite-manifest variable (__GHVM_COMPOSITE_MANIFEST__) exists but
+/// failed to parse as the expected { name: formula } map — most likely hand-edited directly in
+/// GitHub's own Settings -> Actions -> Variables UI, since GitHub has no "hidden"/system-variable
+/// flag and this app's manifest is visible there like any other variable (see docs/Architecture.md).
+/// Distinct from an ABSENT manifest (no such variable at all), which is the ordinary "no composites
+/// here" case and never appears in this list. Scope-level only, deliberately: the manifest is the
+/// sole record of which variables in this scope were composite, so once it's corrupted there is no
+/// way to recover which/how-many were affected — only that this scope's tracking is broken.
+/// </summary>
+public sealed record CorruptedManifestScopeResponse(string Level, string ScopeLabel, string? Env);
+
 public sealed record LedgerResponse(
     IReadOnlyList<LedgerItemResponse> Items,
     IReadOnlyList<LedgerPartialErrorResponse> PartialErrors,
-    IReadOnlyList<LedgerLockedSectionResponse> LockedSections);
+    IReadOnlyList<LedgerLockedSectionResponse> LockedSections,
+    IReadOnlyList<CorruptedManifestScopeResponse> CorruptedManifestScopes);
 
 public sealed record CreateVariableRequest(string Org, string? Repo, string? Env, string Level, string Name, string Value);
 public sealed record RenameVariableRequest(string Org, string? Repo, string? Env, string Level, string CurrentName, string NewName, string Value);

@@ -8,6 +8,7 @@ import { RUNNERS_GATEWAY } from '../../core/gateways/IRunnersGateway';
 import { SCOPES_GATEWAY } from '../../core/gateways/IScopesGateway';
 import { SECRETS_GATEWAY } from '../../core/gateways/ISecretsGateway';
 import { VARIABLES_GATEWAY } from '../../core/gateways/IVariablesGateway';
+import type { CorruptedManifestScope } from '../../core/facades/LedgerSupport';
 import type { LedgerItem } from '../../core/Types';
 import {
   ClearFakeSession,
@@ -53,7 +54,7 @@ describe('DashboardShellComponent', () => {
   /** Configures a fresh TestBed for the given route params and returns a ready, change-detected fixture. */
   async function CreateFixture(
     params: Record<string, string>,
-    options: { variables?: LedgerItem[] } = {},
+    options: { variables?: LedgerItem[]; corruptedManifestScopes?: CorruptedManifestScope[] } = {},
   ): Promise<{
     fixture: ComponentFixture<DashboardShellComponent>;
     fakeVariablesGateway: ReturnType<typeof CreateFakeVariablesGateway>;
@@ -77,6 +78,7 @@ describe('DashboardShellComponent', () => {
       items: options.variables ?? [],
       partialErrors: [],
       lockedSections: [],
+      corruptedManifestScopes: options.corruptedManifestScopes ?? [],
     });
 
     const fakeRunnersGateway = CreateFakeRunnersGateway();
@@ -154,6 +156,18 @@ describe('DashboardShellComponent', () => {
     await WaitFor(fixture, () => (fixture.nativeElement as HTMLElement).textContent?.includes('API_URL') ?? false);
 
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('https://example.com');
+  });
+
+  it('surfaces a corrupted-manifest scope from the ledger query as a banner in app-ledger', async () => {
+    const { fixture } = await CreateFixture(
+      { owner: 'acme-corp', repo: 'widgets' },
+      { corruptedManifestScopes: [{ level: 'repository', scopeLabel: 'widgets' }] },
+    );
+    await WaitFor(fixture, () => (fixture.nativeElement as HTMLElement).textContent?.includes('Formula-tracking data looks corrupted') ?? false);
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Formula-tracking data looks corrupted in one scope');
+    expect(text).toContain('widgets');
   });
 
   it('opens the real copy dialog when a ledger row emits copy', async () => {

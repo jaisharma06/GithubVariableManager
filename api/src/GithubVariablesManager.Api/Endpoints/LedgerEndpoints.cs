@@ -60,7 +60,9 @@ namespace GithubVariablesManager.Api.Endpoints;
 /// (<c>GET /api/ledger</c>'s <c>Formula</c>/<c>ResolvedValue</c>/<c>UnresolvedReferences</c> fields)
 /// happens inside <see cref="Services.LedgerService.GetLedgerAsync"/>, not here — see
 /// <see cref="Services.CompositeVariableResolver"/>'s and <see cref="Services.CompositeManifestService"/>'s
-/// doc comments for the full design.
+/// doc comments for the full design. <c>GET /api/ledger</c>'s response also carries
+/// <c>CorruptedManifestScopes</c> — scopes whose manifest variable exists but failed to parse,
+/// distinct from a scope that simply has none — see <see cref="Contracts.CorruptedManifestScopeResponse"/>.
 /// </summary>
 public static class LedgerEndpoints
 {

@@ -87,7 +87,7 @@ describe('CopyItemDialogComponent', () => {
   beforeEach(async () => {
     SeedFakeSession();
     fakeLedgerGateway = CreateFakeLedgerGateway();
-    fakeLedgerGateway.GetLedger.and.resolveTo({ items: [], partialErrors: [], lockedSections: [] });
+    fakeLedgerGateway.GetLedger.and.resolveTo({ items: [], partialErrors: [], lockedSections: [], corruptedManifestScopes: [] });
 
     fakeScopesGateway = CreateFakeScopesGateway();
     fakeScopesGateway.ListMyOrgs.and.resolveTo([{ login: 'other-org', avatarUrl: '' }]);
@@ -196,13 +196,14 @@ describe('CopyItemDialogComponent', () => {
     it('appends a picked cross-repo target to the checklist with not-set/will-overwrite/already-matches hints resolved from that destination\'s own ledger', async () => {
       fakeLedgerGateway.GetLedger.and.callFake((org: string, repo?: string) => {
         if (org === 'other-org' && repo === undefined) {
-          return Promise.resolve({ items: [], partialErrors: [], lockedSections: [] });
+          return Promise.resolve({ items: [], partialErrors: [], lockedSections: [], corruptedManifestScopes: [] });
         }
         if (org === 'cross-org2' && repo === 'cross-repo') {
           return Promise.resolve({
             items: [{ ...VARIABLE, id: 'match', scope: { org, repo }, value: 'https://example.com' }],
             partialErrors: [],
             lockedSections: [],
+            corruptedManifestScopes: [],
           });
         }
         if (org === 'cross-org3' && repo === 'cross-repo3') {
@@ -210,9 +211,10 @@ describe('CopyItemDialogComponent', () => {
             items: [{ ...VARIABLE, id: 'diff', scope: { org, repo }, value: 'https://different.example.com' }],
             partialErrors: [],
             lockedSections: [],
+            corruptedManifestScopes: [],
           });
         }
-        return Promise.resolve({ items: [], partialErrors: [], lockedSections: [] });
+        return Promise.resolve({ items: [], partialErrors: [], lockedSections: [], corruptedManifestScopes: [] });
       });
 
       OpenCrossRepoPicker(fixture);
@@ -284,7 +286,7 @@ describe('CopyItemDialogComponent — multi-org selected-visibility guard (secre
   beforeEach(async () => {
     SeedFakeSession();
     fakeLedgerGateway = CreateFakeLedgerGateway();
-    fakeLedgerGateway.GetLedger.and.resolveTo({ items: [], partialErrors: [], lockedSections: [] });
+    fakeLedgerGateway.GetLedger.and.resolveTo({ items: [], partialErrors: [], lockedSections: [], corruptedManifestScopes: [] });
 
     fakeScopesGateway = CreateFakeScopesGateway();
     fakeScopesGateway.ListMyOrgs.and.resolveTo([

@@ -107,6 +107,7 @@
           [error]="ledgerQuery.error()"
           [partialErrors]="ledgerPartialErrors()"
           [lockedSections]="ledgerLockedSections()"
+          [corruptedManifestScopes]="ledgerCorruptedManifestScopes()"
           [environments]="environmentsQuery.data() ?? []"
           [showRepoLevels]="!!scope().repo"
           [showOrgLevel]="showOrgLevel()"

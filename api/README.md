@@ -149,7 +149,17 @@ for why each layer stays single-purpose:
   still no extra GitHub calls, and still nothing kept "live" between reads, since the whole response
   is recomputed fresh on every call; `ResolvedValue` now doubles as a staleness signal (`Value !=
   ResolvedValue` means a dependency changed since this item's last write/sync), since `Value` itself
-  is always already the resolved literal now, not the formula. `EnvironmentsService` (`ListEnvironmentsAsync`, with its own local catch
+  is always already the resolved literal now, not the formula. A later, non-phase-numbered addition,
+  manifest-corruption detection (see `docs/Architecture.md`'s dedicated subsection): each scope's
+  `VariablesJob` now reads `CompositeManifestService.ParseManifest`'s `Corrupted` flag, not just its
+  `Manifest`, and when true adds a `CorruptedManifestScopeResponse(Level, ScopeLabel, Env)`
+  (`Contracts/LedgerContracts.cs`) to a new `corruptedManifestScopes` list threaded through the same
+  `JobRunResult`/`JobResult` records `Manifest`/`PartialError`/`LockedSection` already use.
+  `GetLedgerAsync`'s return type, `LedgerResponse`, gained a fourth field,
+  `CorruptedManifestScopes: IReadOnlyList<CorruptedManifestScopeResponse>`, alongside `Items`/
+  `PartialErrors`/`LockedSections` — one entry per scope whose manifest variable exists but failed to
+  parse, distinct from a scope that simply has none (which never appears in this list at all).
+  `EnvironmentsService` (`ListEnvironmentsAsync`, with its own local catch
   turning a "no environments configured" 404 into an empty list rather than a locked section; gains
   `CreateEnvironmentAsync`/`DeleteEnvironmentAsync` thin pass-throughs in Phase 3c). `ItemMutationService`
   starts with the four variable write methods in Phase 3a and gains three secret write methods in
@@ -379,10 +389,18 @@ for why each layer stays single-purpose:
   (organization/each repository/each environment), a `{ variableName: formula }` JSON map, never
   shown as a normal ledger row. `ParseManifest` parses an already-fetched `ListVariablesAsync` result
   with no GitHub call of its own (used by `LedgerService`'s read path, which already fetches this
-  exact list for every scope job) — missing or unparseable content degrades to an empty map, which is
-  also how a pre-existing old-model row (a plain `$(...)`-literal value with no manifest entry) now
-  reads as an ordinary plain variable, with no migration flow needed. `GetManifestAsync` is the fresh-
-  read variant for write-path callers that don't already have the scope's variable list in hand.
+  exact list for every scope job) — its return type is `ManifestParseResult(Manifest, Corrupted)`, a
+  later, non-phase-numbered addition (manifest-corruption detection — see `docs/Architecture.md`'s
+  dedicated subsection for the full "why" and the user question that prompted it) that distinguishes
+  an **absent** manifest variable (no such variable at all — the ordinary "no composites here" case,
+  `Corrupted: false`; this is also how a pre-existing old-model row, a plain `$(...)`-literal value
+  with no manifest entry, reads as an ordinary plain variable now, with no migration flow needed)
+  from **present-but-unparseable** content (invalid JSON, valid JSON with the wrong shape, or a
+  literal JSON `null` — `Corrupted: true`). Both degrade to the same empty map for resolution
+  purposes; only the corrupted case is a real, surfaced problem (see `LedgerService` below).
+  `GetManifestAsync` is the fresh-read variant for write-path callers that don't already have the
+  scope's variable list in hand — it discards the corruption signal (`ParseManifest(raw).Manifest`),
+  since no write-path caller needs it; the flag only matters to the read path's warning banner.
   `ApplyAsync` is the sole write primitive: reads the current manifest, runs a caller-supplied
   `Action<Dictionary<string, string>>` mutation against a copy, and issues a GitHub write only if the
   map actually changed — an unnecessary write (e.g. removing a key that was never present) is a
@@ -504,6 +522,13 @@ for why each layer stays single-purpose:
   written; `Ok:true,Synced:false` means resolved fresh but already current, so the write was skipped;
   `Ok:false` means a circular formula, a missing manifest entry, or a GitHub API error, with
   `Message` set in that case. `SyncAllVariablesResponse` wraps a list of these.
+  A later, non-phase-numbered addition to `LedgerContracts.cs`: manifest-corruption detection (see
+  `docs/Architecture.md`'s dedicated subsection) adds `CorruptedManifestScopeResponse(Level,
+  ScopeLabel, Env)` — a scope whose manifest variable exists but failed to parse as the expected
+  `{ name: formula }` map, distinct from a scope with no manifest variable at all (the ordinary,
+  never-flagged "no composites here" case). `LedgerResponse` gained a fourth field,
+  `CorruptedManifestScopes: IReadOnlyList<CorruptedManifestScopeResponse>`, alongside its existing
+  `Items`/`PartialErrors`/`LockedSections`.
 
 ## Stateless by design
 

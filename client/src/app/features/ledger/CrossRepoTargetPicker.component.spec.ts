@@ -54,7 +54,7 @@ describe('CrossRepoTargetPickerComponent', () => {
     fakeEnvironmentsGateway.ListEnvironments.and.resolveTo([{ id: 1, name: 'staging' }]);
 
     fakeLedgerGateway = CreateFakeLedgerGateway();
-    fakeLedgerGateway.GetLedger.and.resolveTo({ items: [], partialErrors: [], lockedSections: [] });
+    fakeLedgerGateway.GetLedger.and.resolveTo({ items: [], partialErrors: [], lockedSections: [], corruptedManifestScopes: [] });
 
     await TestBed.configureTestingModule({
       imports: [CrossRepoTargetPickerComponent],

@@ -225,6 +225,73 @@ public class LedgerServiceTests
     }
 
     [Fact]
+    public async Task GetLedgerAsync_CorruptedManifestVariable_ProducesOneCorruptedScope_AndEveryItemReadsAsPlain()
+    {
+        // Hand-edited invalid JSON in the manifest slot — every other variable in this scope must
+        // still read as an ordinary, non-composite row (the manifest is the only record of which
+        // ones WERE composite, and it's unreadable now).
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":2,"variables":[{"name":"CDN","value":"https://example.com/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"not json","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var ledger = await service.GetLedgerAsync("octo-org", null);
+
+        var corrupted = Assert.Single(ledger.CorruptedManifestScopes);
+        Assert.Equal("organization", corrupted.Level);
+        Assert.Equal("octo-org", corrupted.ScopeLabel);
+        Assert.Null(corrupted.Env);
+
+        var cdn = Assert.Single(ledger.Items, i => i.Name == "CDN");
+        Assert.Null(cdn.Formula);
+        Assert.Null(cdn.ResolvedValue);
+    }
+
+    [Fact]
+    public async Task GetLedgerAsync_CorruptedManifestVariable_WrongShapeValidJson_IsFlaggedCorruptedToo()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"X\":{\"nested\":1}}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var ledger = await service.GetLedgerAsync("octo-org", null);
+
+        Assert.Single(ledger.CorruptedManifestScopes);
+    }
+
+    [Fact]
+    public async Task GetLedgerAsync_NoManifestVariableAtAll_ProducesZeroCorruptedScopes_AbsentIsNotCorrupted()
+    {
+        // The critical regression guard: a scope that simply has no composites (no manifest
+        // variable at all) must never show up as "corrupted" — only a PRESENT-but-unparseable
+        // manifest should.
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":1,"variables":[{"name":"PLAIN","value":"just-a-value","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var ledger = await service.GetLedgerAsync("octo-org", null);
+
+        Assert.Empty(ledger.CorruptedManifestScopes);
+    }
+
+    [Fact]
+    public async Task GetLedgerAsync_ValidManifest_ProducesZeroCorruptedScopes_CompositesResolveNormally()
+    {
+        var handler = new FakeHttpMessageHandler()
+            .Enqueue(HttpStatusCode.OK, """{"total_count":3,"variables":[{"name":"BASE_URL","value":"https://example.com","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"CDN","value":"https://example.com/cdn","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"},{"name":"__GHVM_COMPOSITE_MANIFEST__","value":"{\"CDN\":\"$(BASE_URL)/cdn\"}","created_at":"2020-01-01T00:00:00Z","updated_at":"2020-01-01T00:00:00Z"}]}""")
+            .Enqueue(HttpStatusCode.OK, """{"total_count":0,"secrets":[]}""");
+        var service = CreateService(handler);
+
+        var ledger = await service.GetLedgerAsync("octo-org", null);
+
+        Assert.Empty(ledger.CorruptedManifestScopes);
+        var cdn = Assert.Single(ledger.Items, i => i.Name == "CDN");
+        Assert.Equal("$(BASE_URL)/cdn", cdn.Formula);
+    }
+
+    [Fact]
     public async Task GetLedgerAsync_EveryJobLocked_DoesNotThrow_LockedIsNotTreatedAsFailure()
     {
         var handler = new FakeHttpMessageHandler()

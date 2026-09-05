@@ -62,6 +62,7 @@ public sealed class LedgerService(
         var items = new List<LedgerItemResponse>();
         var partialErrors = new List<LedgerPartialErrorResponse>();
         var lockedSections = new List<LedgerLockedSectionResponse>();
+        var corruptedManifestScopes = new List<CorruptedManifestScopeResponse>();
         var manifestsByScope = new Dictionary<ScopeKey, IReadOnlyDictionary<string, string>>();
 
         foreach (var result in results)
@@ -74,6 +75,11 @@ public sealed class LedgerService(
             {
                 manifestsByScope[result.Manifest.Value.Key] = result.Manifest.Value.Manifest;
             }
+
+            if (result.CorruptedManifestScope is not null)
+            {
+                corruptedManifestScopes.Add(result.CorruptedManifestScope);
+            }
         }
 
         // Direct port of RunLedgerJobs' all-failed guard: only throws when *every* job hit a
@@ -84,7 +90,7 @@ public sealed class LedgerService(
             throw new LedgerUnavailableException(string.Join("; ", partialErrors.Select(e => $"{e.Label} — {e.Message}")));
         }
 
-        return new LedgerResponse(ResolveComposites(items, manifestsByScope), partialErrors, lockedSections);
+        return new LedgerResponse(ResolveComposites(items, manifestsByScope), partialErrors, lockedSections, corruptedManifestScopes);
     }
 
     /// <summary>
@@ -156,13 +162,14 @@ public sealed class LedgerService(
         async () =>
         {
             var raw = await actionsRestClient.ListVariablesAsync(org, repo, env, level);
-            var manifest = CompositeManifestService.ParseManifest(raw);
+            var parseResult = CompositeManifestService.ParseManifest(raw);
             var items = raw
                 .Where(v => v.Name != CompositeManifestService.ManifestVariableName)
                 .Select(v => new LedgerItemResponse(
                     "variable", level, org, repo, env, v.Name, v.Value, null, v.CreatedAt, v.UpdatedAt))
                 .ToList();
-            return new JobRunResult(items, (new ScopeKey(level, org, repo, env), manifest));
+            var corruptedScope = parseResult.Corrupted ? new CorruptedManifestScopeResponse(level, scopeLabel, env) : null;
+            return new JobRunResult(items, (new ScopeKey(level, org, repo, env), parseResult.Manifest), corruptedScope);
         });
 
     private LedgerJob SecretsJob(string level, string scopeLabel, string org, string? repo, string? env) => new(
@@ -172,7 +179,7 @@ public sealed class LedgerService(
             var raw = await actionsRestClient.ListSecretsAsync(org, repo, env, level);
             var items = raw.Select(s => new LedgerItemResponse(
                 "secret", level, org, repo, env, s.Name, null, s.Visibility, s.CreatedAt, s.UpdatedAt)).ToList();
-            return new JobRunResult(items, null);
+            return new JobRunResult(items, null, null);
         });
 
     private static string JobLabel(LedgerJob job)
@@ -191,24 +198,28 @@ public sealed class LedgerService(
         try
         {
             var result = await job.Run();
-            return new JobResult(result.Items, null, null, result.Manifest);
+            return new JobResult(result.Items, null, null, result.Manifest, result.CorruptedManifestScope);
         }
         catch (ApiException ex)
         {
             var classification = PermissionErrorClassifier.Classify((int)ex.StatusCode, ex.Message);
             return classification.Locked
-                ? new JobResult(null, new LedgerLockedSectionResponse(job.Level, job.Kind, job.ScopeLabel, job.Env), null, null)
-                : new JobResult(null, null, new LedgerPartialErrorResponse(JobLabel(job), ex.Message), null);
+                ? new JobResult(null, new LedgerLockedSectionResponse(job.Level, job.Kind, job.ScopeLabel, job.Env), null, null, null)
+                : new JobResult(null, null, new LedgerPartialErrorResponse(JobLabel(job), ex.Message), null, null);
         }
     }
 
     private sealed record LedgerJob(string Level, string Kind, string ScopeLabel, string? Env, Func<Task<JobRunResult>> Run);
 
-    private sealed record JobRunResult(List<LedgerItemResponse> Items, (ScopeKey Key, IReadOnlyDictionary<string, string> Manifest)? Manifest);
+    private sealed record JobRunResult(
+        List<LedgerItemResponse> Items,
+        (ScopeKey Key, IReadOnlyDictionary<string, string> Manifest)? Manifest,
+        CorruptedManifestScopeResponse? CorruptedManifestScope);
 
     private sealed record JobResult(
         List<LedgerItemResponse>? Items,
         LedgerLockedSectionResponse? LockedSection,
         LedgerPartialErrorResponse? PartialError,
-        (ScopeKey Key, IReadOnlyDictionary<string, string> Manifest)? Manifest);
+        (ScopeKey Key, IReadOnlyDictionary<string, string> Manifest)? Manifest,
+        CorruptedManifestScopeResponse? CorruptedManifestScope);
 }

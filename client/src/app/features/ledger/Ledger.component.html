@@ -60,6 +60,23 @@
     </div>
   }
 
+  @if (corruptedManifestScopes().length > 0) {
+    <div class="border-b border-line bg-danger-dim px-4 py-2">
+      <p class="font-sans text-xs font-medium text-danger">
+        Formula-tracking data looks corrupted in
+        {{ corruptedManifestScopes().length === 1 ? 'one scope' : corruptedManifestScopes().length + ' scopes' }}
+      </p>
+      <ul class="mt-1 space-y-0.5">
+        @for (s of corruptedManifestScopes(); track s.scopeLabel + s.level) {
+          <li class="text-xs text-text-dim">
+            <span class="text-danger">{{ s.scopeLabel }}</span>: any composite variables here will need their formulas
+            re-entered to restore Sync
+          </li>
+        }
+      </ul>
+    </div>
+  }
+
   <div class="flex-1 overflow-x-auto overflow-y-auto">
     @if (isLoading()) {
       <div class="space-y-2 p-4">

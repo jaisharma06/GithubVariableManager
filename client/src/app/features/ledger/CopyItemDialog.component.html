@@ -45,9 +45,9 @@
           <div class="max-h-52 space-y-0 overflow-y-auto rounded-md border border-line">
             @for (c of candidates(); track c.key) {
               <label class="flex items-center justify-between gap-2 border-b border-line px-3 py-2 text-sm last:border-b-0">
-                <span class="flex min-w-0 items-center gap-2">
-                  <input type="checkbox" [checked]="selected().has(c.key)" (change)="Toggle(c.key)" />
-                  <span class="truncate text-text">{{ c.label }}</span>
+                <span class="flex min-w-0 items-start gap-2">
+                  <input type="checkbox" class="mt-0.5" [checked]="selected().has(c.key)" (change)="Toggle(c.key)" />
+                  <span class="min-w-0 flex-1 break-all text-text" [title]="c.label">{{ c.label }}</span>
                 </span>
                 <span class="flex shrink-0 items-center gap-2">
                   @if (!c.existing) {

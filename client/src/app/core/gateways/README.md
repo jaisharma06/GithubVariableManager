@@ -29,7 +29,12 @@ see `docs/Architecture.md`'s "Gateway/Adapter" pattern entry for the full ration
   classification server-side (`Services/LedgerService.cs`) that `LedgerFacade`/
   `LedgerSupport.RunLedgerJobs` used to assemble client-side. Reuses `LedgerResult`/
   `LedgerPartialError`/`LedgerLockedSection` from `core/facades/LedgerSupport.ts` for the response
-  shape instead of a new duplicate type. As of Phase 6 it also covers `Copy`/`DeleteEverywhere`
+  shape instead of a new duplicate type. A later, non-phase-numbered addition, manifest-corruption
+  detection (see `docs/Architecture.md`'s dedicated subsection): `GetLedger`'s response now also
+  carries `corruptedManifestScopes`, mapped through a new private `ToCorruptedManifestScope` mapper
+  (the same shape as the existing `ToLockedSection`) into `LedgerResult`'s new
+  `corruptedManifestScopes: CorruptedManifestScope[]` field — also reused from
+  `core/facades/LedgerSupport.ts`, not a new duplicate type. As of Phase 6 it also covers `Copy`/`DeleteEverywhere`
   (`POST /api/ledger/copy`/`delete-everywhere`) — the same precedent `IWorkflowsGateway` already
   set of a Gateway growing from reads-only to include a bulk op belonging to the same vertical.
   Reuses `CopyTarget`/`CopyResult`/`DeleteEverywhereTarget`/`DeleteEverywhereResult` from

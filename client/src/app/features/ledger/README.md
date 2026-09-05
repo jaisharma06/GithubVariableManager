@@ -76,7 +76,15 @@
   `DashboardShellComponent` re-fetches the ledger before opening the confirm dialog (see that
   component's `HandleSyncAll` entry below for why), the "Sync all" button shows "Checking for
   changes…" and is disabled, rather than immediately opening a dialog whose target list could still
-  be built from a stale cached read.
+  be built from a stale cached read. A later, non-phase-numbered addition, manifest-corruption
+  detection (see `docs/Architecture.md`'s dedicated subsection for the full design): a new
+  `corruptedManifestScopes` input (`CorruptedManifestScope[]`, from `core/facades/LedgerSupport.ts`)
+  backs a scope-level warning banner rendered above the list whenever non-empty, reusing the existing
+  partial-errors banner's visual treatment (`border-b border-line bg-danger-dim`). It lists each
+  affected scope by label only — deliberately **no count of affected variables**, since that count is
+  unknowable once a scope's manifest has failed to parse (the manifest was the sole record of which
+  variables there were composite). Distinct from an absent manifest (a scope with no composites at
+  all), which never appears here.
 - **`CopyItemDialog.component.ts`/`.html`** — push one variable/secret's value out to a batch of
   other scopes at once. `BuildCandidates` (every other scope in the org/repo that could receive a
   copy, excluding the source, with an existing-item lookup for the overwrite/matches/not-set hint)

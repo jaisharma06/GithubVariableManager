@@ -4,6 +4,15 @@ using GithubVariablesManager.Api.GitHub;
 namespace GithubVariablesManager.Api.Services;
 
 /// <summary>
+/// <see cref="CompositeManifestService.ParseManifest"/>'s return shape — distinguishes an ABSENT
+/// manifest variable (ordinary "no composites here" case, <see cref="Corrupted"/> false) from a
+/// PRESENT-but-unparseable one (hand-edited invalid JSON, or valid JSON with the wrong shape,
+/// <see cref="Corrupted"/> true). Both degrade to the same empty <see cref="Manifest"/> map for
+/// resolution purposes, but only the corrupted case is a real, surfaced problem.
+/// </summary>
+public sealed record ManifestParseResult(IReadOnlyDictionary<string, string> Manifest, bool Corrupted);
+
+/// <summary>
 /// Owns reading and writing the one hidden JSON "manifest" variable each scope (organization/each
 /// repository/each environment) uses to track which of its variables are composite formulas — the
 /// new-model replacement for the old "is composite" == "value looks like a formula" derivation.
@@ -36,22 +45,27 @@ public sealed class CompositeManifestService(ActionsRestClient actionsRestClient
     /// result — no GitHub call of its own. Used by <see cref="LedgerService"/>'s read path, which
     /// already fetches this exact list for every scope job; keeping the parse here (rather than
     /// duplicating it) is what lets that read path stay a "no new GitHub calls" change.
-    /// Missing or unparseable manifest content degrades to an empty map — this is also how a
-    /// pre-existing old-model row (a plain <c>$(...)</c>-literal value with no manifest entry) reads
-    /// as an ordinary plain variable now, with no special migration needed.
+    /// Missing manifest content (no such variable) degrades to an empty, NOT-corrupted map — this is
+    /// also how a pre-existing old-model row (a plain <c>$(...)</c>-literal value with no manifest
+    /// entry) reads as an ordinary plain variable now, with no special migration needed. Present-but-
+    /// unparseable content (hand-edited invalid JSON, or valid JSON with the wrong shape) degrades to
+    /// an empty map too, but flagged <see cref="ManifestParseResult.Corrupted"/> — see
+    /// <see cref="LedgerService"/>'s <c>CorruptedManifestScopeResponse</c> handling for why that
+    /// distinction matters: absence is the ordinary "no composites here" case, corruption is a real,
+    /// surfaced problem.
     /// </summary>
-    public static IReadOnlyDictionary<string, string> ParseManifest(IReadOnlyList<RawVariable> rawVariables)
+    public static ManifestParseResult ParseManifest(IReadOnlyList<RawVariable> rawVariables)
     {
         var manifestVariable = rawVariables.FirstOrDefault(v => v.Name == ManifestVariableName);
-        if (manifestVariable is null) return EmptyManifest;
+        if (manifestVariable is null) return new ManifestParseResult(EmptyManifest, Corrupted: false);
         return ParseJson(manifestVariable.Value);
     }
 
-    /// <summary>Fresh read via <see cref="ActionsRestClient"/> — for write-path callers that don't already have this scope's variable list in hand.</summary>
+    /// <summary>Fresh read via <see cref="ActionsRestClient"/> — for write-path callers that don't already have this scope's variable list in hand. The corruption signal isn't needed by any write-path caller (see this class's own remarks on <see cref="ParseManifest"/> and <c>ItemMutationService</c>'s doc comments) so it's discarded here.</summary>
     public async Task<IReadOnlyDictionary<string, string>> GetManifestAsync(string org, string? repo, string? env, string level)
     {
         var raw = await actionsRestClient.ListVariablesAsync(org, repo, env, level);
-        return ParseManifest(raw);
+        return ParseManifest(raw).Manifest;
     }
 
     /// <summary>
@@ -73,15 +87,20 @@ public sealed class CompositeManifestService(ActionsRestClient actionsRestClient
         await actionsRestClient.UpsertVariableAsync(org, repo, env, level, ManifestVariableName, json);
     }
 
-    private static IReadOnlyDictionary<string, string> ParseJson(string json)
+    private static ManifestParseResult ParseJson(string json)
     {
         try
         {
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? EmptyManifest;
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            // A successfully-parsed literal `null`, or any shape other than {string: string}, isn't
+            // the expected object — treat as corrupted, not silently empty.
+            return parsed is null ? new ManifestParseResult(EmptyManifest, Corrupted: true) : new ManifestParseResult(parsed, Corrupted: false);
         }
         catch (JsonException)
         {
-            return EmptyManifest;
+            // Invalid JSON AND valid JSON with non-string values (nested object/number/array) both
+            // throw here via Deserialize<Dictionary<string,string>> — no extra shape-checking needed.
+            return new ManifestParseResult(EmptyManifest, Corrupted: true);
         }
     }
 

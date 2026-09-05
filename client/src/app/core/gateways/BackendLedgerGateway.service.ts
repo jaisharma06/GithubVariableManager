@@ -10,7 +10,7 @@ import type {
   DeleteEverywhereTarget,
   EnvironmentVariableCopyResult,
 } from '../facades/CopySupport';
-import type { LedgerLockedSection, LedgerPartialError, LedgerResult } from '../facades/LedgerSupport';
+import type { CorruptedManifestScope, LedgerLockedSection, LedgerPartialError, LedgerResult } from '../facades/LedgerSupport';
 import { ItemId } from './GithubPathBuilder';
 import type { ILedgerGateway, ResolveVariableResult, SyncAllTargetResult, SyncVariableResult } from './ILedgerGateway';
 import type { PutSecretOptions } from './ISecretsGateway';
@@ -84,10 +84,17 @@ interface LedgerLockedSectionResponse {
   env: string | null;
 }
 
+interface CorruptedManifestScopeResponse {
+  level: ItemLevel;
+  scopeLabel: string;
+  env: string | null;
+}
+
 interface LedgerResponse {
   items: LedgerItemResponse[];
   partialErrors: LedgerPartialError[];
   lockedSections: LedgerLockedSectionResponse[];
+  corruptedManifestScopes: CorruptedManifestScopeResponse[];
 }
 
 interface LedgerScopeTargetRequest {
@@ -183,6 +190,7 @@ export class BackendLedgerGateway implements ILedgerGateway {
       items: data.items.map((i) => this.ToLedgerItem(i)),
       partialErrors: data.partialErrors,
       lockedSections: data.lockedSections.map((s) => this.ToLockedSection(s)),
+      corruptedManifestScopes: data.corruptedManifestScopes.map((s) => this.ToCorruptedManifestScope(s)),
     };
   }
 
@@ -343,5 +351,9 @@ export class BackendLedgerGateway implements ILedgerGateway {
 
   private ToLockedSection(section: LedgerLockedSectionResponse): LedgerLockedSection {
     return { level: section.level, kind: section.kind, scopeLabel: section.scopeLabel, env: section.env ?? undefined };
+  }
+
+  private ToCorruptedManifestScope(scope: CorruptedManifestScopeResponse): CorruptedManifestScope {
+    return { level: scope.level, scopeLabel: scope.scopeLabel, env: scope.env ?? undefined };
   }
 }

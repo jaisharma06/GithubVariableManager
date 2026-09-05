@@ -47,10 +47,25 @@ export interface LedgerLockedSection {
   env?: string;
 }
 
+/**
+ * A scope whose hidden composite-manifest variable (`__GHVM_COMPOSITE_MANIFEST__`) exists but
+ * failed to parse as the expected `{ name: formula }` map — most likely hand-edited directly in
+ * GitHub's own Settings -> Actions -> Variables UI, since GitHub has no "hidden"/system-variable
+ * flag. Distinct from an ABSENT manifest (no such variable at all), which is the ordinary "no
+ * composites here" case and never appears in this list — see
+ * `api/Contracts/LedgerContracts.cs`'s `CorruptedManifestScopeResponse` for the full design.
+ */
+export interface CorruptedManifestScope {
+  level: ItemLevel;
+  scopeLabel: string;
+  env?: string;
+}
+
 export interface LedgerResult {
   items: LedgerItem[];
   partialErrors: LedgerPartialError[];
   lockedSections: LedgerLockedSection[];
+  corruptedManifestScopes: CorruptedManifestScope[];
 }
 
 // Composite-variable support (Azure-App-Config-style $(OtherVarName) formulas, variables only).

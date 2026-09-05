@@ -513,14 +513,18 @@ rather than silently left out of this file's narrative:
     ledger read; `BuildLookupAsync`, fresh scoped `ActionsRestClient` calls). It resolves a formula
     against a lookup; it has no opinion on where a formula is stored.
   - `api/Services/CompositeManifestService.cs` — the manifest blob's read/write mechanics only:
-    `GetManifestAsync`/`ParseManifest` parse a scope's manifest variable (missing or unparseable
-    content degrades to an empty map — **this is also how a pre-existing old-model row degrades
-    gracefully**: a literal `$(...)`-shaped value with no corresponding manifest entry just reads as
-    an ordinary plain variable now, no migration flow needed), and `ApplyAsync` is the sole write
-    primitive — reads the current manifest, runs a caller-supplied mutation, and writes back only if
-    the map actually changed. Kept separate from `CompositeVariableResolver` the same way
-    `SecretSealingService` is kept separate from `ItemMutationService` — a self-contained concern
-    neither a read path nor a write path should own outright.
+    `GetManifestAsync`/`ParseManifest` parse a scope's manifest variable. An **absent** manifest
+    variable (no such variable in this scope at all) degrades to an empty map with no warning — this
+    is also how a pre-existing old-model row degrades gracefully: a literal `$(...)`-shaped value
+    with no corresponding manifest entry just reads as an ordinary plain variable now, no migration
+    flow needed. **Present-but-unparseable** content (hand-edited invalid JSON, valid JSON with the
+    wrong shape, or a literal JSON `null`) also degrades to an empty map for resolution purposes, but
+    is flagged **corrupted** — see "Manifest corruption detection" below for why that distinction
+    exists and what it surfaces. `ApplyAsync` is the sole write primitive — reads the current
+    manifest, runs a caller-supplied mutation, and writes back only if the map actually changed. Kept
+    separate from `CompositeVariableResolver` the same way `SecretSealingService` is kept separate
+    from `ItemMutationService` — a self-contained concern neither a read path nor a write path should
+    own outright.
 
   **Read path — no extra GitHub calls.** The manifest variable rides along in the very same
   `ListVariablesAsync` response every scope's variables job in `LedgerService.GetLedgerAsync`
@@ -622,6 +626,39 @@ rather than silently left out of this file's narrative:
   `ILedgerGateway.SyncAllVariables(targets)`, new Facade mutation `LedgerFacade.syncAllVariables` — a
   real `injectMutation` like `syncVariable`, no optimistic `onMutate` for the same reason (a resolved
   value can't be guessed client-side), `onSuccess` invalidates `['ledger']`.
+
+  **Manifest corruption detection — a later, non-phase-numbered addition, answering a question a
+  real user asked: "why is this variable visible in GitHub's own UI, and what happens if someone
+  touches it?"** GitHub has no "hidden"/system-variable flag — the manifest variable
+  (`__GHVM_COMPOSITE_MANIFEST__`) is a completely ordinary variable from GitHub's own point of view,
+  visible and editable in Settings → Actions → Variables like any other. `CompositeManifestService.
+  ParseManifest` now returns `ManifestParseResult(Manifest, Corrupted)` rather than a bare map,
+  distinguishing two previously-conflated cases: an **absent** manifest variable (the ordinary "no
+  composites in this scope" case — `Corrupted: false`, no warning, unchanged from before) from a
+  **present-but-unparseable** one (invalid JSON, valid JSON with the wrong shape, or a literal JSON
+  `null` — most likely from someone hand-editing that variable directly in GitHub's UI —
+  `Corrupted: true`). Both still resolve to an empty map for resolution purposes (no change to the
+  read/write/resolve mechanics themselves), but only the corrupted case is now a real, surfaced
+  problem: `LedgerService.GetLedgerAsync` gained a `CorruptedManifestScopes:
+  IReadOnlyList<CorruptedManifestScopeResponse>` field (`Contracts/LedgerContracts.cs`) alongside the
+  existing `Items`/`PartialErrors`/`LockedSections`, threaded through the same `JobRunResult`/
+  `JobResult` pattern those already use, one entry per scope whose manifest failed to parse.
+  `client/` surfaces this as a scope-level warning banner in `Ledger.component.html` (reusing the
+  existing partial-errors banner's visual treatment), threaded through `LedgerResult.
+  corruptedManifestScopes` (`core/facades/LedgerSupport.ts`) →
+  `BackendLedgerGateway.GetLedger` → `DashboardShellComponent`'s `ledgerCorruptedManifestScopes`
+  computed → `LedgerComponent`'s `corruptedManifestScopes` input. The warning is deliberately
+  **scope-level only, with no count of affected variables** — that count is genuinely unknowable once
+  a manifest is corrupted, since the manifest was the sole record of which variables in that scope
+  were composite in the first place. `ItemMutationService`'s write/sync paths needed no changes: a
+  corrupted-to-empty manifest already behaves identically to "this name was never tracked" — the same
+  `CompositeFormulaNotFoundException`/`400` any genuinely-untracked name gets on Sync. One thing this
+  detection can never catch, by the nature of the constraint it works around: **deletion of the
+  manifest variable entirely** is indistinguishable from "no composites were ever created in this
+  scope" — an absent manifest is never flagged, by design — so a manifest that's deleted outright
+  (rather than corrupted-in-place) stays permanently, silently undetectable. That's not a gap this
+  feature closes; it's an inherent limit of tracking state in a variable GitHub itself treats as
+  ordinary and deletable.
 
   **Scope precedence mirrors GitHub Actions' real override chain** — environment > repository >
   organization — enforced by building the name→value lookup broadest-first and letting a

@@ -41,6 +41,7 @@ public class LedgerEndpointsTests(WebApplicationFactory<Program> factory) : ICla
         Assert.Contains("\"items\"", body);
         Assert.Contains("\"partialErrors\"", body);
         Assert.Contains("\"lockedSections\"", body);
+        Assert.Contains("\"corruptedManifestScopes\"", body);
     }
 
     [Fact]

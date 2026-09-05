@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { LedgerLockedSection, LedgerPartialError } from '../../core/facades/LedgerSupport';
+import type { CorruptedManifestScope, LedgerLockedSection, LedgerPartialError } from '../../core/facades/LedgerSupport';
 import type { GithubEnvironment, LedgerItem } from '../../core/Types';
 import { DEFAULT_FILTERS, type LedgerFilters } from './LedgerFilters';
 import { LedgerComponent } from './Ledger.component';
@@ -10,6 +10,7 @@ interface FixtureOverrides {
   error?: Error | null;
   partialErrors?: LedgerPartialError[];
   lockedSections?: LedgerLockedSection[];
+  corruptedManifestScopes?: CorruptedManifestScope[];
   environments?: GithubEnvironment[];
   showRepoLevels?: boolean;
   showOrgLevel?: boolean;
@@ -48,6 +49,7 @@ describe('LedgerComponent', () => {
     f.componentRef.setInput('error', overrides.error ?? null);
     f.componentRef.setInput('partialErrors', overrides.partialErrors ?? []);
     f.componentRef.setInput('lockedSections', overrides.lockedSections ?? []);
+    f.componentRef.setInput('corruptedManifestScopes', overrides.corruptedManifestScopes ?? []);
     f.componentRef.setInput('environments', overrides.environments ?? [{ id: 1, name: 'staging' }]);
     f.componentRef.setInput('showRepoLevels', overrides.showRepoLevels ?? true);
     f.componentRef.setInput('showOrgLevel', overrides.showOrgLevel ?? false);
@@ -92,6 +94,34 @@ describe('LedgerComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain("Couldn’t load one part of this scope");
     expect(text).toContain('organization variables');
+  });
+
+  it('hides the corrupted-manifest banner when there are no corrupted scopes', async () => {
+    fixture = await CreateFixture();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).not.toContain('Formula-tracking data looks corrupted');
+  });
+
+  it('shows the corrupted-manifest banner with singular wording for one scope', async () => {
+    fixture = await CreateFixture({
+      corruptedManifestScopes: [{ level: 'repository', scopeLabel: 'widgets' } satisfies CorruptedManifestScope],
+    });
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Formula-tracking data looks corrupted in one scope');
+    expect(text).toContain('widgets');
+    expect(text).toContain('any composite variables here will need their formulas re-entered to restore Sync');
+  });
+
+  it('shows the corrupted-manifest banner with plural wording for multiple scopes', async () => {
+    fixture = await CreateFixture({
+      corruptedManifestScopes: [
+        { level: 'repository', scopeLabel: 'widgets' } satisfies CorruptedManifestScope,
+        { level: 'environment', scopeLabel: 'staging', env: 'staging' } satisfies CorruptedManifestScope,
+      ],
+    });
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Formula-tracking data looks corrupted in 2 scopes');
+    expect(text).toContain('staging');
   });
 
   it('toggles hideValues and masks variable values when clicked', async () => {

@@ -1,5 +1,5 @@
 import { Component, computed, input, output, signal } from '@angular/core';
-import { FindComposites, type LedgerLockedSection, type LedgerPartialError } from '../../core/facades/LedgerSupport';
+import { FindComposites, type CorruptedManifestScope, type LedgerLockedSection, type LedgerPartialError } from '../../core/facades/LedgerSupport';
 import type { GithubEnvironment, ItemKind, ItemLevel, LedgerItem } from '../../core/Types';
 import { ButtonComponent } from '../../shared/components/Button.component';
 import { FilterBarComponent } from './FilterBar.component';
@@ -85,6 +85,7 @@ export class LedgerComponent {
   readonly error = input<Error | null>(null);
   readonly partialErrors = input<LedgerPartialError[]>([]);
   readonly lockedSections = input<LedgerLockedSection[]>([]);
+  readonly corruptedManifestScopes = input<CorruptedManifestScope[]>([]);
   readonly environments = input<GithubEnvironment[]>([]);
   readonly showRepoLevels = input(false);
   readonly showOrgLevel = input(false);
